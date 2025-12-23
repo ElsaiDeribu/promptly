@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-elsai-metadata-name
+spec:
+  selector:
+    matchLabels:
+      app: hello-elsai-label
+  template:
+    metadata:
+      labels:
+        app: hello-elsai-label
+    spec:
+      containers:
+      - name: hello-elsai-container
+        image: gcr.io/google-samples/hello-app:2.0
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+      - name: demo-service
+        image: nginx:latest
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-elsai-service
+spec:
+  selector:
+    app: hello-elsai-label
+  ports:
+    - name: hello-app
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: hello-elsai-label
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
