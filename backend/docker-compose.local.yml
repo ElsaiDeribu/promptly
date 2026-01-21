@@ -2,6 +2,7 @@ volumes:
   app_local_postgres_data: {}
   app_local_postgres_data_backups: {}
   app_local_redis_data: {}
+  app_local_ollama_data: {}
 
 services:
   django: &django
@@ -14,6 +15,7 @@ services:
       - postgres
       - redis
       - mailpit
+      - ollama
     volumes:
       - .:/app:z
     env_file:
@@ -48,6 +50,15 @@ services:
     container_name: app_local_redis
     volumes:
       - app_local_redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: app_local_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - app_local_ollama_data:/root/.ollama
+    restart: unless-stopped
 
   celeryworker:
     <<: *django
