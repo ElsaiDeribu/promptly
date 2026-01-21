@@ -32,4 +32,8 @@ export const endpoints = {
     login: '/api/auth/login',
     register: '/api/auth/register',
   },
+  llm: {
+    chat: '/api/llm/chat',
+    models: '/api/llm/models',
+  },
 };

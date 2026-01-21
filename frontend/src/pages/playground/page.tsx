@@ -1,8 +1,11 @@
 
+import './index.css';
+
 import { RotateCcw } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Excalidraw } from '@excalidraw/excalidraw';
 import { Separator } from "@/components/ui/separator"
 import {
   Tabs,
@@ -27,9 +30,6 @@ import { PresetActions } from "./components/preset-actions"
 import { PresetSelector } from "./components/preset-selector"
 import { MaxLengthSelector } from "./components/maxlength-selector"
 import { TemperatureSelector } from "./components/temperature-selector"
-
-import './index.css';
-import { Excalidraw } from '@excalidraw/excalidraw';
 
 export default function PlaygroundPage() {
   return (
