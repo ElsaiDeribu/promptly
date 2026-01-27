@@ -6,4 +6,13 @@ set -o nounset
 
 
 python manage.py migrate
-exec uvicorn config.asgi:application --host 0.0.0.0 --reload
+
+# Start uvicorn in the background (don't use exec)
+uvicorn config.asgi:application --host 0.0.0.0 --reload &
+UVICORN_PID=$!
+
+# Wait a moment for uvicorn to start
+sleep 2
+
+# Start streamlit in the foreground (this becomes PID 1 for Docker)
+exec streamlit run app/llm/multimodal_rag/rag_pipeline.py --server.port 8501 --server.address 0.0.0.0
