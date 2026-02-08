@@ -1,5 +1,7 @@
 import logging
+from base64 import b64decode
 from typing import Dict, List, TypedDict
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
@@ -8,36 +10,39 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, END
-from uuid import uuid4
-from base64 import b64decode
-
+from langgraph.graph import END, StateGraph
 
 load_dotenv()
 
-from ....llm.utils.pdf_processor import process_pdf
+from ....llm.utils.pdf_processor import get_images_base64, get_tables, process_pdf
 from ....llm.utils.vector_db import VectorDBWrapper
-from ....llm.utils.pdf_processor import get_images_base64, get_tables
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================
+# State Definitions
+# ============================================================
 
 
-# Define state schema
-class GraphState(TypedDict):
-    messages: List[HumanMessage | SystemMessage]
-    context: Dict[str, List[Document]]
-    current_response: str
+class ProcessingState(TypedDict):
+    """State for PDF processing workflow"""
     file_path: str
     chunks: List
     summaries: Dict[str, List[str]]
     vector_db: VectorDBWrapper
 
 
-def pre_process_pdf(state: GraphState) -> GraphState:
+class ChatState(TypedDict):
+    """State for chat/query workflow"""
+    messages: List[HumanMessage | SystemMessage]
+    context: Dict[str, List[Document]]
+    current_response: str
+    vector_db: VectorDBWrapper
+
+
+def pre_process_pdf(state: ProcessingState) -> ProcessingState:
     """Pre-process the PDF file"""
     try:
         state["chunks"] = process_pdf(state["file_path"])
@@ -50,7 +55,7 @@ def pre_process_pdf(state: GraphState) -> GraphState:
         raise
 
 
-def summarize_content(state: GraphState) -> GraphState:
+def summarize_content(state: ProcessingState) -> ProcessingState:
     """Summarize text, tables and images from the PDF"""
     try:
         # Extract content
@@ -111,7 +116,7 @@ def summarize_content(state: GraphState) -> GraphState:
         raise
 
 
-def load_summaries(state: GraphState) -> GraphState:
+def load_summaries(state: ProcessingState) -> ProcessingState:
     """Load summaries into vector store with links to original content"""
     try:
         vector_db = state["vector_db"]
@@ -191,7 +196,8 @@ def load_summaries(state: GraphState) -> GraphState:
             # Store the S3 key instead of presigned URL (generate URL at query time)
             summary_img.append(
                 Document(
-                    page_content=summary, metadata={id_key: img_id, "image_key": img_key}
+                    page_content=summary,
+                    metadata={id_key: img_id, "image_key": img_key},
                 )
             )
 
@@ -253,7 +259,7 @@ def build_prompt(kwargs):
     return ChatPromptTemplate.from_messages([HumanMessage(content=prompt_content)])
 
 
-def retrieve_and_generate(state: GraphState) -> GraphState:
+def retrieve_and_generate(state: ChatState) -> ChatState:
     """Retrieve context and generate response using retrieved context"""
     try:
         # Retrieve context
@@ -296,7 +302,7 @@ def retrieve_and_generate(state: GraphState) -> GraphState:
 
 def create_processing_graph() -> StateGraph:
     """Create graph for initial PDF processing"""
-    workflow = StateGraph(GraphState)
+    workflow = StateGraph(ProcessingState)
     workflow.add_node("preprocess", pre_process_pdf)
     workflow.add_node("summarize", summarize_content)
     workflow.add_node("load_summaries", load_summaries)
@@ -311,10 +317,52 @@ def create_processing_graph() -> StateGraph:
 
 def create_chat_graph() -> StateGraph:
     """Create graph for question answering"""
-    workflow = StateGraph(GraphState)
+    workflow = StateGraph(ChatState)
     workflow.add_node("retrieve_and_generate", retrieve_and_generate)
 
     workflow.set_entry_point("retrieve_and_generate")
     workflow.add_edge("retrieve_and_generate", END)
 
     return workflow.compile()
+
+
+def create_processing_state(file_path: str) -> ProcessingState:
+    """
+    Create initial state for PDF processing.
+
+    Args:
+        file_path: Path to the PDF file to process
+
+    Returns:
+        ProcessingState: Initial state dictionary for processing workflow
+
+    Raises:
+        RuntimeError: If the vector DB is not initialized
+    """
+    return {
+        "file_path": file_path,
+        "chunks": [],
+        "summaries": {},
+        "vector_db": VectorDBWrapper(),
+    }
+
+
+def create_chat_state(question: str) -> ChatState:
+    """
+    Create initial state for chat queries.
+
+    Args:
+        question: User's question to answer
+
+    Returns:
+        ChatState: Initial state dictionary for chat workflow
+
+    Raises:
+        RuntimeError: If the vector DB is not initialized
+    """
+    return {
+        "messages": [HumanMessage(content=question)],
+        "context": {},
+        "current_response": "",
+        "vector_db": VectorDBWrapper(),
+    }
