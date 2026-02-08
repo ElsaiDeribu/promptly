@@ -6,6 +6,8 @@ import { LoadingScreen } from '@/components/loading-screen';
 // ----------------------------------------------------------------------
 
 const DashboardPage = lazy(() => import('@/pages/dashboard/dashboard'));
+const LLMChatPage = lazy(() => import('@/pages/dashboard/llm-chat'));
+const MultimodalRagPage = lazy(() => import('@/pages/dashboard/multimodal-rag'));
 
 // ----------------------------------------------------------------------
 
@@ -19,6 +21,10 @@ export const dashboardRoutes = [
         </Suspense>
       </AuthGuard>
     ),
-    children: [{ element: <DashboardPage />, index: true }],
+    children: [
+      { element: <DashboardPage />, index: true },
+      { path: 'llm-chat', element: <LLMChatPage /> },
+      { path: 'multimodal-rag', element: <MultimodalRagPage /> },
+    ],
   },
 ];

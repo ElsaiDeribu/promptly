@@ -1,11 +1,20 @@
 import json
 import os
+import tempfile
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from langchain_core.messages import HumanMessage
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .services.multimodal_rag.rag_pipeline import (
+    VectorDBWrapper,
+    create_chat_graph,
+    create_processing_graph,
+)
+from .serializers import ProcessPDFSerializer, RAGQuerySerializer
 
 
 def _ollama_base_url() -> str:
@@ -112,4 +121,170 @@ class OllamaModelsView(APIView):
             return Response(
                 {"error": "Failed to fetch Ollama models", "details": str(e)},
                 status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+# Shared vector database instance for multimodal RAG
+# In production, this should be stored in a more persistent way (e.g., Redis, DB)
+_vector_db_instance = None
+
+
+def get_vector_db():
+    """Get or create the shared vector database instance"""
+    global _vector_db_instance
+    if _vector_db_instance is None:
+        _vector_db_instance = VectorDBWrapper()
+    return _vector_db_instance
+
+
+class ProcessPDFView(APIView):
+    """
+    Process a PDF file for multimodal RAG.
+    
+    This endpoint accepts a PDF file, processes it to extract text, tables, and images,
+    generates summaries, and stores them in the vector database for later retrieval.
+    
+    Request:
+      - file: PDF file (multipart/form-data)
+    
+    Response:
+      - success: boolean
+      - message: string
+      - filename: string (name of processed file)
+    """
+
+    def post(self, request):
+        serializer = ProcessPDFSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        uploaded_file = serializer.validated_data["file"]
+        
+        # Save uploaded file to a temporary location
+        try:
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".pdf", prefix="rag_"
+            ) as tmp_file:
+                for chunk in uploaded_file.chunks():
+                    tmp_file.write(chunk)
+                temp_path = tmp_file.name
+            
+            # Process the PDF using the RAG pipeline
+            vector_db = get_vector_db()
+            processing_graph = create_processing_graph()
+            
+            initial_state = {
+                "file_path": temp_path,
+                "messages": [],
+                "context": {},
+                "current_response": "",
+                "chunks": [],
+                "summaries": {},
+                "vector_db": vector_db,
+            }
+            
+            processing_graph.invoke(initial_state)
+            
+            # Clean up temporary file
+            os.unlink(temp_path)
+            
+            return Response(
+                {
+                    "success": True,
+                    "message": "PDF processed successfully",
+                    "filename": uploaded_file.name,
+                },
+                status=status.HTTP_200_OK,
+            )
+        
+        except Exception as e:
+            # Clean up temporary file if it exists
+            if "temp_path" in locals():
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+            
+            return Response(
+                {"error": "Failed to process PDF", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class RAGQueryView(APIView):
+    """
+    Query the multimodal RAG system.
+    
+    This endpoint accepts a question and retrieves relevant context from processed
+    documents (text, tables, images) to generate an answer.
+    
+    Request body:
+      - question: string (required)
+    
+    Response:
+      - question: string (the original question)
+      - answer: string (generated answer)
+      - context: object with texts and image URLs
+    """
+
+    def post(self, request):
+        serializer = RAGQuerySerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        question = serializer.validated_data["question"]
+        
+        try:
+            vector_db = get_vector_db()
+            chat_graph = create_chat_graph()
+            
+            chat_state = {
+                "messages": [HumanMessage(content=question)],
+                "context": {},
+                "current_response": "",
+                "file_path": "",
+                "chunks": [],
+                "summaries": {},
+                "vector_db": vector_db,
+            }
+            
+            result = chat_graph.invoke(chat_state)
+            
+            # Extract response
+            if isinstance(result["current_response"], str):
+                answer = result["current_response"]
+                context = result.get("context", {})
+            else:
+                answer = result["current_response"].get("response", "")
+                context = result["current_response"].get("context", {})
+            
+            
+            # Replace 'minio:9000' with 'localhost:9000' in image URLs for frontend access
+            if "images" in context and isinstance(context["images"], list):
+                context["images"] = [
+                    img.replace("minio:9000", "localhost:9200") if isinstance(img, str) else img
+                    for img in context["images"]
+                ]
+            
+            return Response(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "context": context,
+                },
+                status=status.HTTP_200_OK,
+            )
+        
+        except Exception as e:
+            return Response(
+                {"error": "Failed to process query", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
