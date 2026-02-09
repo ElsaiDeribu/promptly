@@ -27,11 +27,10 @@ from ....llm.utils.vector_db import VectorDBWrapper
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # ============================================================
 # State Definitions
 # ============================================================
-
-
 class ProcessingState(TypedDict):
     """State for PDF processing workflow"""
     file_path: str
@@ -50,6 +49,53 @@ class ChatState(TypedDict):
     object_store: S3Wrapper
 
 
+def create_processing_state(file_path: str) -> ProcessingState:
+    """
+    Create initial state for PDF processing.
+
+    Args:
+        file_path: Path to the PDF file to process
+
+    Returns:
+        ProcessingState: Initial state dictionary for processing workflow
+
+    Raises:
+        RuntimeError: If the vector DB is not initialized
+    """
+    return {
+        "file_path": file_path,
+        "chunks": [],
+        "summaries": {},
+        "vector_db": VectorDBWrapper(),
+        "object_store": S3Wrapper(),
+    }
+
+
+def create_chat_state(question: str) -> ChatState:
+    """
+    Create initial state for chat queries.
+
+    Args:
+        question: User's question to answer
+
+    Returns:
+        ChatState: Initial state dictionary for chat workflow
+
+    Raises:
+        RuntimeError: If the vector DB is not initialized
+    """
+    return {
+        "messages": [HumanMessage(content=question)],
+        "context": {},
+        "current_response": "",
+        "vector_db": VectorDBWrapper(),
+        "object_store": S3Wrapper(),
+    }
+
+
+# ============================================================
+# PDF Processing Workflow
+# ============================================================
 def pre_process_pdf(state: ProcessingState) -> ProcessingState:
     """Pre-process the PDF file"""
     try:
@@ -262,15 +308,6 @@ def build_prompt(kwargs):
 
     prompt_content = [{"type": "text", "text": prompt_template}]
 
-    # if len(docs_by_type["images"]) > 0:
-    #     for image_url in docs_by_type["images"]:
-    #         prompt_content.append(
-    #             {
-    #                 "type": "image_url",
-    #                 "image_url": {"url": image_url},
-    #             }
-    #         )
-
     return ChatPromptTemplate.from_messages([HumanMessage(content=prompt_content)])
 
 
@@ -340,46 +377,3 @@ def create_chat_graph() -> StateGraph:
 
     return workflow.compile()
 
-
-def create_processing_state(file_path: str) -> ProcessingState:
-    """
-    Create initial state for PDF processing.
-
-    Args:
-        file_path: Path to the PDF file to process
-
-    Returns:
-        ProcessingState: Initial state dictionary for processing workflow
-
-    Raises:
-        RuntimeError: If the vector DB is not initialized
-    """
-    return {
-        "file_path": file_path,
-        "chunks": [],
-        "summaries": {},
-        "vector_db": VectorDBWrapper(),
-        "object_store": S3Wrapper(),
-    }
-
-
-def create_chat_state(question: str) -> ChatState:
-    """
-    Create initial state for chat queries.
-
-    Args:
-        question: User's question to answer
-
-    Returns:
-        ChatState: Initial state dictionary for chat workflow
-
-    Raises:
-        RuntimeError: If the vector DB is not initialized
-    """
-    return {
-        "messages": [HumanMessage(content=question)],
-        "context": {},
-        "current_response": "",
-        "vector_db": VectorDBWrapper(),
-        "object_store": S3Wrapper(),
-    }
