@@ -67,17 +67,3 @@ class VectorDBWrapper:
         """
         return self.vector_store.similarity_search(query, k=k)
 
-    def save_local(self, path: str) -> None:
-        """Save the vector store to local storage
-
-        Note: With Qdrant this is not needed as data is automatically persisted
-        """
-        # Qdrant automatically persists data
-
-    def load_local(self, path: str) -> None:
-        """Load the vector store from local storage
-
-        Note: With Qdrant this is not needed as data is automatically persisted
-        """
-        # Qdrant automatically loads persisted data
-
