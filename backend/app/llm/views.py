@@ -231,17 +231,6 @@ class RAGQueryView(APIView):
                 answer = result["current_response"].get("response", "")
                 context = result["current_response"].get("context", {})
 
-            # Replace 'minio:9000' with 'localhost:9000' in image URLs for frontend access
-            if "images" in context and isinstance(context["images"], list):
-                context["images"] = [
-                    (
-                        img.replace("minio:9000", "localhost:9200")
-                        if isinstance(img, str)
-                        else img
-                    )
-                    for img in context["images"]
-                ]
-
             return Response(
                 {
                     "question": question,

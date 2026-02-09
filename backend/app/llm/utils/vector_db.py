@@ -1,6 +1,5 @@
 from typing import Optional
 import os
-import boto3
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from langchain_core.documents import Document
@@ -31,24 +30,6 @@ class VectorDBWrapper:
 
         # Initialize Qdrant client
         self.client = QdrantClient(host=qdrant_host, port=qdrant_port)
-
-        # Initialize MinIO client
-        self.s3_client = boto3.client(
-            "s3",
-            endpoint_url="http://minio:9000",
-            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-            region_name="us-east-1",
-        )
-
-        # Create bucket if it doesn't exist
-        bucket_name = "pdf-images"
-        # try:
-        #     self.s3_client.head_bucket(Bucket=bucket_name)
-        # except:
-        #     self.s3_client.create_bucket(Bucket=bucket_name)
-
-        self.bucket_name = bucket_name
 
         # Create collection if it doesn't exist
         try:

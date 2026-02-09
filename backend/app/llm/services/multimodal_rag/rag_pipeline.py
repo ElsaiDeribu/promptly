@@ -16,6 +16,7 @@ load_dotenv()
 
 from ....llm.utils.pdf_processor import get_images_base64, get_tables, process_pdf
 from ....llm.utils.vector_db import VectorDBWrapper
+from ....llm.utils.s3 import S3Wrapper
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,7 @@ class ProcessingState(TypedDict):
     chunks: List
     summaries: Dict[str, List[str]]
     vector_db: VectorDBWrapper
+    object_store: S3Wrapper
 
 
 class ChatState(TypedDict):
@@ -40,16 +42,26 @@ class ChatState(TypedDict):
     context: Dict[str, List[Document]]
     current_response: str
     vector_db: VectorDBWrapper
+    object_store: S3Wrapper
 
 
 def pre_process_pdf(state: ProcessingState) -> ProcessingState:
     """Pre-process the PDF file"""
     try:
+        # Upload PDF to S3
+        state["object_store"].upload_file(
+            file_path=state["file_path"],
+            object_name=f"pdfs/{str(uuid4())}.pdf",
+        )
+        
+        # Process PDF
         state["chunks"] = process_pdf(state["file_path"])
         state["summaries"] = {"text": [], "tables": [], "images": []}
         if "vector_db" not in state:
             state["vector_db"] = VectorDBWrapper()
+            
         return state
+    
     except Exception as e:
         logger.error(f"Error pre-processing PDF: {str(e)}")
         raise
@@ -186,11 +198,10 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
 
             # Convert base64 to bytes and upload
             img_bytes = b64decode(images[i])
-            vector_db.s3_client.put_object(
-                Bucket=vector_db.bucket_name,
-                Key=img_key,
-                Body=img_bytes,
-                ContentType="image/jpeg",
+            state["object_store"].put_file(
+                data=img_bytes,
+                object_name=img_key,
+                content_type="image/jpeg",
             )
 
             # Store the S3 key instead of presigned URL (generate URL at query time)
@@ -210,7 +221,7 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
         raise
 
 
-def parse_docs(docs, vector_db):
+def parse_docs(docs, object_store):
     """Split image URLs and texts, generating fresh presigned URLs for images"""
     urls = []
     text = []
@@ -218,10 +229,9 @@ def parse_docs(docs, vector_db):
         if "image_key" in doc.metadata:
             # Generate fresh presigned URL from stored S3 key
             img_key = doc.metadata["image_key"]
-            url = vector_db.s3_client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": vector_db.bucket_name, "Key": img_key},
-                ExpiresIn=3600,  # 1 hour expiration
+            url = object_store.generate_presigned_url(
+                object_name=img_key,
+                expiration=3600,
             )
             urls.append(url)
         else:
@@ -266,7 +276,7 @@ def retrieve_and_generate(state: ChatState) -> ChatState:
         vector_db = state["vector_db"]
         query = state["messages"][-1].content
         docs = vector_db.similarity_search(query)
-        parsed_docs = parse_docs(docs, vector_db)
+        parsed_docs = parse_docs(docs=docs, object_store=state["object_store"])
         state["context"] = parsed_docs
 
         # Check if we have any relevant context
@@ -344,6 +354,7 @@ def create_processing_state(file_path: str) -> ProcessingState:
         "chunks": [],
         "summaries": {},
         "vector_db": VectorDBWrapper(),
+        "object_store": S3Wrapper(),
     }
 
 
@@ -365,4 +376,5 @@ def create_chat_state(question: str) -> ChatState:
         "context": {},
         "current_response": "",
         "vector_db": VectorDBWrapper(),
+        "object_store": S3Wrapper(),
     }
