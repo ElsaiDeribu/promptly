@@ -1,6 +1,9 @@
 from django.urls import path
 
-from .views import OllamaChatView, OllamaModelsView, ProcessPDFView, RAGQueryView
+from .views import OllamaChatView
+from .views import OllamaModelsView
+from .views import ProcessPDFView
+from .views import RAGQueryView
 
 urlpatterns = [
     path("chat", OllamaChatView.as_view(), name="ollama-chat"),

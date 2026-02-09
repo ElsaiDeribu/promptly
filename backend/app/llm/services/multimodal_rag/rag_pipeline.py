@@ -1,22 +1,27 @@
 import logging
 from base64 import b64decode
-from typing import Dict, List, TypedDict
+from typing import TypedDict
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END
+from langgraph.graph import StateGraph
 
 load_dotenv()
 
-from ....llm.utils.pdf_processor import get_images_base64, get_tables, process_pdf
-from ....llm.utils.vector_db import VectorDBWrapper
+from ....llm.utils.pdf_processor import get_images_base64
+from ....llm.utils.pdf_processor import get_tables
+from ....llm.utils.pdf_processor import process_pdf
 from ....llm.utils.s3 import S3Wrapper
+from ....llm.utils.vector_db import VectorDBWrapper
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,16 +35,16 @@ logger = logging.getLogger(__name__)
 class ProcessingState(TypedDict):
     """State for PDF processing workflow"""
     file_path: str
-    chunks: List
-    summaries: Dict[str, List[str]]
+    chunks: list
+    summaries: dict[str, list[str]]
     vector_db: VectorDBWrapper
     object_store: S3Wrapper
 
 
 class ChatState(TypedDict):
     """State for chat/query workflow"""
-    messages: List[HumanMessage | SystemMessage]
-    context: Dict[str, List[Document]]
+    messages: list[HumanMessage | SystemMessage]
+    context: dict[str, list[Document]]
     current_response: str
     vector_db: VectorDBWrapper
     object_store: S3Wrapper
@@ -51,19 +56,19 @@ def pre_process_pdf(state: ProcessingState) -> ProcessingState:
         # Upload PDF to S3
         state["object_store"].upload_file(
             file_path=state["file_path"],
-            object_name=f"pdfs/{str(uuid4())}.pdf",
+            object_name=f"pdfs/{uuid4()!s}.pdf",
         )
-        
+
         # Process PDF
         state["chunks"] = process_pdf(state["file_path"])
         state["summaries"] = {"text": [], "tables": [], "images": []}
         if "vector_db" not in state:
             state["vector_db"] = VectorDBWrapper()
-            
+
         return state
-    
+
     except Exception as e:
-        logger.error(f"Error pre-processing PDF: {str(e)}")
+        logger.error(f"Error pre-processing PDF: {e!s}")
         raise
 
 
@@ -82,7 +87,7 @@ def summarize_content(state: ProcessingState) -> ProcessingState:
             Give a concise summary of the following content.
             Respond only with the summary, no additional comments.
             Content: {element}
-        """
+        """,
         )
 
         # Create summary chain
@@ -94,7 +99,7 @@ def summarize_content(state: ProcessingState) -> ProcessingState:
         # Summarize text and tables
         state["summaries"]["text"] = summary_chain.batch(texts, {"max_concurrency": 5})
         state["summaries"]["tables"] = summary_chain.batch(
-            tables, {"max_concurrency": 5}
+            tables, {"max_concurrency": 5},
         )
 
         # Image summary prompt
@@ -112,8 +117,8 @@ def summarize_content(state: ProcessingState) -> ProcessingState:
                             "image_url": {"url": "data:image/jpeg;base64,{image}"},
                         },
                     ],
-                )
-            ]
+                ),
+            ],
         )
 
         # Create image chain
@@ -124,7 +129,7 @@ def summarize_content(state: ProcessingState) -> ProcessingState:
 
         return state
     except Exception as e:
-        logger.error(f"Error summarizing content: {str(e)}")
+        logger.error(f"Error summarizing content: {e!s}")
         raise
 
 
@@ -173,7 +178,7 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
             # Store text content directly in metadata
             for i, _ in clean_text_summaries:
                 vector_db.vector_store.add_documents(
-                    [Document(page_content=texts[i], metadata={id_key: doc_ids[i]})]
+                    [Document(page_content=texts[i], metadata={id_key: doc_ids[i]})],
                 )
 
         # Add table summaries
@@ -186,7 +191,7 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
             # Store table content directly in metadata
             for i, _ in clean_table_summaries:
                 vector_db.vector_store.add_documents(
-                    [Document(page_content=tables[i], metadata={id_key: table_ids[i]})]
+                    [Document(page_content=tables[i], metadata={id_key: table_ids[i]})],
                 )
 
         # Add image summaries and save images to MinIO
@@ -209,7 +214,7 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
                 Document(
                     page_content=summary,
                     metadata={id_key: img_id, "image_key": img_key},
-                )
+                ),
             )
 
         if summary_img:
@@ -217,7 +222,7 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
 
         return state
     except Exception as e:
-        logger.error(f"Error loading summaries: {str(e)}")
+        logger.error(f"Error loading summaries: {e!s}")
         raise
 
 
@@ -298,7 +303,7 @@ def retrieve_and_generate(state: ChatState) -> ChatState:
                 RunnableLambda(build_prompt)
                 | ChatOpenAI(model="gpt-4o-mini")
                 | StrOutputParser()
-            )
+            ),
         )
 
         result = chain_with_sources.invoke(state["messages"][-1].content)
@@ -306,7 +311,7 @@ def retrieve_and_generate(state: ChatState) -> ChatState:
         return state
     except Exception as e:
         logger.error(f"State ==> {state}")
-        logger.error(f"Error retrieving context or generating response: {str(e)}")
+        logger.error(f"Error retrieving context or generating response: {e!s}")
         raise
 
 

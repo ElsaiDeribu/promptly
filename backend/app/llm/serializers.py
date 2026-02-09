@@ -7,7 +7,7 @@ class ProcessPDFSerializer(serializers.Serializer):
     """
 
     file = serializers.FileField(
-        help_text="PDF file to process for multimodal RAG"
+        help_text="PDF file to process for multimodal RAG",
     )
 
 
@@ -17,5 +17,5 @@ class RAGQuerySerializer(serializers.Serializer):
     """
 
     question = serializers.CharField(
-        help_text="Question to ask about the processed documents"
+        help_text="Question to ask about the processed documents",
     )

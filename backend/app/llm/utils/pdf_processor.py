@@ -1,11 +1,12 @@
-from typing import List
+
 from unstructured.documents.elements import Element
 from unstructured.partition.pdf import partition_pdf
+
 
 # ------------------------------------------------------------
 # Pre-processing
 # ------------------------------------------------------------
-def process_pdf(file_path: str, output_path: str = "./output/") -> List[Element]:
+def process_pdf(file_path: str, output_path: str = "./output/") -> list[Element]:
     """Process a PDF file and extract chunks with tables and images.
 
     Args:
@@ -21,7 +22,7 @@ def process_pdf(file_path: str, output_path: str = "./output/") -> List[Element]
         infer_table_structure=True,  # extract tables
         strategy="hi_res",  # mandatory to infer tables
         extract_image_block_types=[
-            "Image"
+            "Image",
         ],  # Add 'Table' to list to extract image of tables
         # image_output_dir_path=output_path,   # if None, images and tables will saved in base64
         extract_image_block_to_payload=True,  # if true, will extract base64 for API usage

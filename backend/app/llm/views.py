@@ -1,20 +1,21 @@
 import json
 import os
 import tempfile
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.error import URLError
+from urllib.request import Request
+from urllib.request import urlopen
 
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import ProcessPDFSerializer, RAGQuerySerializer
-from .services.multimodal_rag.rag_pipeline import (
-    create_chat_graph,
-    create_chat_state,
-    create_processing_graph,
-    create_processing_state,
-)
+from .serializers import ProcessPDFSerializer
+from .serializers import RAGQuerySerializer
+from .services.multimodal_rag.rag_pipeline import create_chat_graph
+from .services.multimodal_rag.rag_pipeline import create_chat_state
+from .services.multimodal_rag.rag_pipeline import create_processing_graph
+from .services.multimodal_rag.rag_pipeline import create_processing_state
 
 
 def _ollama_base_url() -> str:
@@ -23,7 +24,7 @@ def _ollama_base_url() -> str:
 
 
 def _ollama_request(
-    path: str, payload: dict, timeout_s: float = 120.0
+    path: str, payload: dict, timeout_s: float = 120.0,
 ) -> tuple[int, dict]:
     url = f"{_ollama_base_url()}{path}"
     data = json.dumps(payload).encode("utf-8")
@@ -110,7 +111,7 @@ class OllamaModelsView(APIView):
     def get(self, request):
         url = f"{_ollama_base_url()}/api/tags"
         req = Request(
-            url=url, headers={"Content-Type": "application/json"}, method="GET"
+            url=url, headers={"Content-Type": "application/json"}, method="GET",
         )
         try:
             with urlopen(req, timeout=10.0) as resp:  # noqa: S310 (local service)
@@ -154,7 +155,7 @@ class ProcessPDFView(APIView):
         # Save uploaded file to a temporary location
         try:
             with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".pdf", prefix="rag_"
+                delete=False, suffix=".pdf", prefix="rag_",
             ) as tmp_file:
                 for chunk in uploaded_file.chunks():
                     tmp_file.write(chunk)

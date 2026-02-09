@@ -1,13 +1,11 @@
-from typing import Optional
 import os
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import Qdrant
-from typing import List
-
-
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance
+from qdrant_client.models import VectorParams
 
 
 # ------------------------------------------------------------
@@ -16,7 +14,7 @@ from typing import List
 class VectorDBWrapper:
     """Wrapper class for vector database operations to make it easy to swap implementations"""
 
-    def __init__(self, embeddings: Optional[OpenAIEmbeddings] = None):
+    def __init__(self, embeddings: OpenAIEmbeddings | None = None):
         """Initialize the vector store wrapper
 
         Args:
@@ -48,7 +46,7 @@ class VectorDBWrapper:
             embeddings=self.embeddings,
         )
 
-    def add_documents(self, documents: List[Document]) -> None:
+    def add_documents(self, documents: list[Document]) -> None:
         """Add documents to vector store
 
         Args:
@@ -57,7 +55,7 @@ class VectorDBWrapper:
         # Add to vectorstore
         self.vector_store.add_documents(documents)
 
-    def similarity_search(self, query: str, k: int = 4) -> List[Document]:
+    def similarity_search(self, query: str, k: int = 4) -> list[Document]:
         """Perform similarity search for a query
 
         Args:
@@ -74,12 +72,12 @@ class VectorDBWrapper:
 
         Note: With Qdrant this is not needed as data is automatically persisted
         """
-        pass  # Qdrant automatically persists data
+        # Qdrant automatically persists data
 
     def load_local(self, path: str) -> None:
         """Load the vector store from local storage
 
         Note: With Qdrant this is not needed as data is automatically persisted
         """
-        pass  # Qdrant automatically loads persisted data
+        # Qdrant automatically loads persisted data
 

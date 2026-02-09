@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -17,11 +17,11 @@ class S3Wrapper:
 
     def __init__(
         self,
-        bucket_name: Optional[str] = None,
-        endpoint_url: Optional[str] = None,
-        access_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
-        region: Optional[str] = None,
+        bucket_name: str | None = None,
+        endpoint_url: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        region: str | None = None,
     ):
         """Initialize the S3 wrapper
 
@@ -53,7 +53,7 @@ class S3Wrapper:
         )
 
     def upload_file(
-        self, file_path: str, object_name: Optional[str] = None, bucket: Optional[str] = None
+        self, file_path: str, object_name: str | None = None, bucket: str | None = None,
     ) -> bool:
         """
         Upload a file to S3 bucket.
@@ -84,8 +84,8 @@ class S3Wrapper:
         self,
         data: bytes,
         object_name: str,
-        bucket: Optional[str] = None,
-        content_type: Optional[str] = None,
+        bucket: str | None = None,
+        content_type: str | None = None,
     ) -> bool:
         """
         Put file data (bytes) directly to S3 bucket.
@@ -114,12 +114,12 @@ class S3Wrapper:
             print(f"Error putting file: {e}")
             return False
 
-    
+
 
 
     def generate_presigned_url(
-        self, object_name: str, expiration: int = 3600, bucket: Optional[str] = None
-    ) -> Optional[str]:
+        self, object_name: str, expiration: int = 3600, bucket: str | None = None,
+    ) -> str | None:
         """
         Generate a presigned URL for an S3 object.
 
