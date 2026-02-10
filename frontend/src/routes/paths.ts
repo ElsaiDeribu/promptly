@@ -14,6 +14,8 @@ export const paths = {
 
   dashboard: {
     root: ROOTS.DASHBOARD,
+    llmChat: `${ROOTS.DASHBOARD}/llm-chat`,
+    multimodalRag: `${ROOTS.DASHBOARD}/multimodal-rag`,
   },
 
   // AUTH

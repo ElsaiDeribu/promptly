@@ -25,8 +25,10 @@ services:
     env_file:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
+      - ./.envs/.local/.rag
     ports:
       - '8000:8000'
+      - '8501:8501'
     command: /start
 
   postgres:

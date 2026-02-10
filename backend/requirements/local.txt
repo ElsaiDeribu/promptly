@@ -30,3 +30,27 @@ factory-boy==3.3.3  # https://github.com/FactoryBoy/factory_boy
 
 django-extensions==4.1  # https://github.com/django-extensions/django-extensions
 pytest-django==4.11.1  # https://github.com/pytest-dev/pytest-django
+
+
+# Multimodal RAG
+# ------------------------------------------------------------------------------
+langchain==0.3.21  # https://github.com/langchain-ai/langchain
+langgraph==0.2.62  # https://github.com/langchain-ai/langgraph
+langchain-community==0.3.20  # https://github.com/langchain-ai/langchain
+langchain-openai==0.2.14  # https://github.com/langchain-ai/langchain
+langchain-core==0.3.45  # https://github.com/langchain-ai/langchain
+langsmith==0.2.8  # https://github.com/langchain-ai/langsmith-sdk
+faiss-cpu==1.9.0.post1  # https://github.com/facebookresearch/faiss
+streamlit==1.41.1  # https://github.com/streamlit/streamlit
+tiktoken==0.8.0  # https://github.com/openai/tiktoken
+python-dotenv==1.0.1  # https://github.com/theskumar/python-dotenv
+nltk==3.9.1  # https://github.com/nltk/nltk
+unstructured[pdf]==0.16.14  # https://github.com/Unstructured-IO/unstructured
+pdfminer.six==20231228  # https://github.com/pdfminer/pdfminer.six (compatible with unstructured)
+opencv-python-headless==4.10.0.84  # https://github.com/opencv/opencv-python (headless for Docker)
+boto3==1.35.93  # https://github.com/boto/boto3
+lxml==5.3.0  # https://github.com/lxml/lxml
+qdrant-client==1.11.3  # https://github.com/qdrant/qdrant-client
+langchain-qdrant==0.1.4  # https://github.com/langchain-ai/langchain
+langgraph-cli[inmem]==0.1.62  # https://github.com/langchain-ai/langgraph
+

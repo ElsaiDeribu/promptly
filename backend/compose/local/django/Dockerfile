@@ -50,7 +50,10 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   # psycopg dependencies
   libpq-dev \
   wait-for-it \
-  # cleaning up unused files
+  libmagic-dev \
+  libgl1 \
+  poppler-utils \
+  tesseract-ocr \
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
 
@@ -61,6 +64,10 @@ COPY --from=python-build-stage /usr/src/app/wheels /wheels/
 # use wheels to install python dependencies
 RUN pip install --no-cache-dir --no-index --find-links=/wheels/ /wheels/* \
   && rm -rf /wheels/
+
+# Download NLTK data at build time (required by unstructured for PDF/text processing)
+ENV NLTK_DATA=/usr/local/share/nltk_data
+RUN python -m nltk.downloader -d "${NLTK_DATA}" punkt punkt_tab averaged_perceptron_tagger averaged_perceptron_tagger_eng
 
 COPY ./compose/production/django/entrypoint /entrypoint
 RUN sed -i 's/\r$//g' /entrypoint
