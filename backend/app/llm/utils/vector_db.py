@@ -2,7 +2,7 @@ import os
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
-from langchain_qdrant import Qdrant
+from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance
 from qdrant_client.models import VectorParams
@@ -40,10 +40,10 @@ class VectorDBWrapper:
             )
 
         # Initialize vectorstore
-        self.vector_store = Qdrant(
+        self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name="multi_modal_rag",
-            embeddings=self.embeddings,
+            embedding=self.embeddings,
         )
 
     def add_documents(self, documents: list[Document]) -> None:
