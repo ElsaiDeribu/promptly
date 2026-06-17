@@ -39,3 +39,7 @@ logs *args:
 # manage: Executes `manage.py` command.
 manage +args:
     @docker compose run --rm django python ./manage.py {{args}}
+
+# rag-eval: Run LangSmith offline evals for multimodal RAG.
+rag-eval *args:
+    @docker compose run --rm django python ./manage.py run_rag_eval {{args}}

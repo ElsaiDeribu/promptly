@@ -117,6 +117,27 @@ class S3Wrapper:
 
 
 
+    def get_file(self, object_name: str, bucket: str | None = None) -> bytes | None:
+        """
+        Download an object from S3 as bytes.
+
+        Args:
+            object_name: S3 object name
+            bucket: Bucket name. If not specified, uses default bucket
+
+        Returns:
+            Object data as bytes, or None if error
+        """
+        if bucket is None:
+            bucket = self.bucket_name
+
+        try:
+            response = self.client.get_object(Bucket=bucket, Key=object_name)
+            return response["Body"].read()
+        except ClientError as e:
+            print(f"Error downloading file: {e}")
+            return None
+
     def generate_presigned_url(
         self, object_name: str, expiration: int = 3600, bucket: str | None = None,
     ) -> str | None:
