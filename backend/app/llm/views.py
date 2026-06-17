@@ -12,10 +12,9 @@ from rest_framework.views import APIView
 
 from .serializers import ProcessPDFSerializer
 from .serializers import RAGQuerySerializer
-from .services.multimodal_rag.rag_pipeline import create_chat_graph
-from .services.multimodal_rag.rag_pipeline import create_chat_state
 from .services.multimodal_rag.rag_pipeline import create_processing_graph
 from .services.multimodal_rag.rag_pipeline import create_processing_state
+from .services.multimodal_rag.rag_pipeline import run_rag_query
 
 
 def _ollama_base_url() -> str:
@@ -220,23 +219,13 @@ class RAGQueryView(APIView):
         question = serializer.validated_data["question"]
 
         try:
-            chat_graph = create_chat_graph()
-            chat_state = create_chat_state(question)
-            result = chat_graph.invoke(chat_state)
-
-            # Extract response
-            if isinstance(result["current_response"], str):
-                answer = result["current_response"]
-                context = result.get("context", {})
-            else:
-                answer = result["current_response"].get("response", "")
-                context = result["current_response"].get("context", {})
+            result = run_rag_query(question)
 
             return Response(
                 {
                     "question": question,
-                    "answer": answer,
-                    "context": context,
+                    "answer": result["answer"],
+                    "context": result.get("context", {}),
                 },
                 status=status.HTTP_200_OK,
             )

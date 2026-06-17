@@ -31,10 +31,19 @@ Optional:
 
 ```text
 promptly/
-├── backend/          # Django API + Docker Compose stack
+├── backend/                        # Django API + Docker Compose stack
 │   ├── docker-compose.local.yml
-│   └── .envs/.local/ # Local secrets (not committed; you create these)
-└── frontend/         # React SPA (Vite dev server on port 8081)
+│   ├── justfile                    # Just recipes for common dev tasks
+│   ├── .envs/.local/               # Local secrets (not committed; you create these)
+│   └── app/llm/
+│       ├── evals/                  # LangSmith offline eval harness
+│       │   ├── rag_eval.py         # Evaluators + run_rag_evaluation()
+│       │   └── sample_dataset.json # Starter eval examples (customise me)
+│       ├── management/commands/
+│       │   └── run_rag_eval.py     # `manage.py run_rag_eval` entry point
+│       └── services/multimodal_rag/
+│           └── rag_pipeline.py     # LangGraph RAG graph + run_rag_query()
+└── frontend/                       # React SPA (Vite dev server on port 8081)
 ```
 
 ---
@@ -94,11 +103,11 @@ Required for multimodal RAG (PDF processing and queries). Use **Docker service h
 # OpenAI (required for RAG embeddings and summarization)
 OPENAI_API_KEY=your-openai-api-key
 
-# Optional: LangSmith tracing
-LANGSMITH_TRACING=false
+# Optional: LangSmith tracing and evals
+LANGSMITH_TRACING=true
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-LANGSMITH_API_KEY=
-LANGSMITH_PROJECT=
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT=promptly-rag
 
 # Qdrant (vector store)
 QDRANT_HOST=qdrant
@@ -229,9 +238,51 @@ docker exec -it app_local_django pytest
 
 # View logs for one service
 docker compose -f docker-compose.local.yml logs -f django
+
+# Run LangSmith RAG evals (requires indexed PDFs + OPENAI_API_KEY)
+docker exec -it app_local_django python manage.py run_rag_eval
+
+# Run evals locally without uploading to LangSmith
+docker exec -it app_local_django python manage.py run_rag_eval --local
+
+# Shorthand via just
+just rag-eval
+just rag-eval --local
 ```
 
 More backend notes: [backend/README.md](backend/README.md) (Cookiecutter Django boilerplate docs).
+
+### LangSmith tracing and evals
+
+1. Create an API key at [smith.langchain.com](https://smith.langchain.com) and set `LANGSMITH_API_KEY` in `backend/.envs/.local/.rag` (see env block above).
+2. Restart Django so tracing env vars load: `docker compose -f docker-compose.local.yml restart django`.
+3. Process at least one PDF via `POST /api/llm/rag/process`, then hit `POST /api/llm/rag/query` — traces appear under the `LANGSMITH_PROJECT` (default: `promptly-rag`).
+4. Run offline evals against the sample dataset:
+
+```bash
+docker exec -it app_local_django python manage.py run_rag_eval
+```
+
+Options:
+
+| Flag | Description |
+|------|-------------|
+| `--local` | Run evaluators without uploading to LangSmith |
+| `--sync-dataset` | Push examples to a LangSmith dataset before evaluating |
+| `--dataset-file <path>` | Path to a JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
+| `--dataset-name <name>` | LangSmith dataset name (default: `promptly-multimodal-rag`) |
+| `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`) |
+| `--max-concurrency <n>` | Parallel eval runs (default: 1) |
+
+**Built-in evaluators** (defined in `backend/app/llm/evals/rag_eval.py`):
+
+| Evaluator | What it checks |
+|-----------|----------------|
+| `has_context` | Retrieved context contains at least one text chunk or image |
+| `answer_not_empty` | Answer is non-empty and does not fall back to "don't have enough context" |
+| `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
+
+Customize `backend/app/llm/evals/sample_dataset.json` with reference answers after you know what your indexed PDFs should return.
 
 ---
 

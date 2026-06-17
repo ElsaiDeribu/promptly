@@ -17,6 +17,7 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langsmith import traceable
 
 load_dotenv()
 
@@ -380,4 +381,20 @@ def create_chat_graph() -> CompiledStateGraph:
     workflow.add_edge("retrieve_and_generate", END)
 
     return workflow.compile()
+
+
+@traceable(name="multimodal_rag_query")
+def run_rag_query(question: str) -> dict:
+    """Run the chat RAG graph and return answer plus retrieved context."""
+    chat_graph = create_chat_graph()
+    result = chat_graph.invoke(create_chat_state(question))
+
+    answer = result["current_response"]
+    if not isinstance(answer, str):
+        answer = answer.get("response", "")
+
+    return {
+        "answer": answer,
+        "context": result.get("context", {"texts": [], "images": []}),
+    }
 

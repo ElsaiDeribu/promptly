@@ -1,0 +1,26 @@
+[
+  {
+    "inputs": {
+      "question": "What are the main topics covered in the document?"
+    },
+    "outputs": {
+      "answer": ""
+    }
+  },
+  {
+    "inputs": {
+      "question": "Summarize the key information in the document in a few sentences."
+    },
+    "outputs": {
+      "answer": ""
+    }
+  },
+  {
+    "inputs": {
+      "question": "Does the document include tables or figures? If so, what do they show?"
+    },
+    "outputs": {
+      "answer": ""
+    }
+  }
+]
