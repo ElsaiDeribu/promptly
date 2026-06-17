@@ -1,29 +1,20 @@
 # Promptly
 
-Promptly is a full-stack app for experimenting with LLMs: JWT auth, an Ollama chat proxy, and a multimodal RAG pipeline over PDFs (Qdrant, MinIO, OpenAI).
-
-| Layer | Stack |
-|-------|--------|
-| **Backend** | Django REST Framework, Celery, PostgreSQL, Redis, Ollama, Qdrant, MinIO |
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS |
+Promptly is a full-stack application for experimenting with LLMs. It features a Django REST API backend and a React SPA frontend, supporting JWT authentication, local LLM chat via Ollama, and a multimodal RAG pipeline over PDFs using Qdrant, MinIO, and OpenAI. The RAG pipeline includes integrated evaluation (evals) for retrieval quality, and leverages LangChain, LangGraph, and LangSmith for advanced orchestration, retrieval, and evaluation workflows.
 
 ---
 
-## Prerequisites
+## Tech stack
 
-Install these before you start:
-
-| Tool | Version / notes |
-|------|------------------|
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required for the backend and all supporting services |
-| [Node.js](https://nodejs.org/) | **20+** recommended (for the frontend) |
-| npm or yarn | Comes with Node; the frontend scripts work with either |
-
-Optional:
-
-- [Git](https://git-scm.com/) — clone the repo
-- OpenAI API key — required for **multimodal RAG** (embeddings + chat)
-- Enough disk/RAM for Docker images and Ollama models (models are large)
+| Layer | Stack |
+|-------|--------|
+| **Backend** | Python 3.12, Django 5, Django REST Framework, Celery, PostgreSQL, Redis |
+| **LLM / AI** | Ollama (local models), OpenAI (embeddings + summaries),LangChain, LangGraph, LangSmith |
+| **Storage** | Qdrant (vector DB), MinIO (S3-compatible object storage) |
+| **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS 4 |
+| **UI components** | shadcn/ui (Radix UI primitives), Lucide icons, Framer Motion |
+| **Forms / validation** | React Hook Form, Zod |
+| **HTTP / routing** | Axios, React Router v7 |
 
 ---
 
@@ -31,54 +22,126 @@ Optional:
 
 ```text
 promptly/
-├── backend/                        # Django API + Docker Compose stack
-│   ├── docker-compose.local.yml
-│   ├── justfile                    # Just recipes for common dev tasks
-│   ├── .envs/.local/               # Local secrets (not committed; you create these)
-│   └── app/llm/
-│       ├── evals/                  # LangSmith offline eval harness
-│       │   ├── rag_eval.py         # Evaluators + run_rag_evaluation()
-│       │   └── sample_dataset.json # Starter eval examples (customise me)
-│       ├── management/commands/
-│       │   └── run_rag_eval.py     # `manage.py run_rag_eval` entry point
-│       └── services/multimodal_rag/
-│           └── rag_pipeline.py     # LangGraph RAG graph + run_rag_query()
-└── frontend/                       # React SPA (Vite dev server on port 8081)
+├── backend/                              # Django API + Docker Compose stack
+│   ├── app/                              # Django project root
+│   │   ├── authentication/               # JWT auth app (register, login, me)
+│   │   │   ├── serializers.py
+│   │   │   ├── views.py
+│   │   │   └── urls.py
+│   │   ├── users/                        # Custom user model + Celery tasks
+│   │   │   ├── models.py
+│   │   │   ├── manager.py
+│   │   │   ├── tasks.py
+│   │   │   └── tests/
+│   │   └── llm/                          # LLM features (chat + RAG)
+│   │       ├── views.py                  # API views: models, chat, RAG endpoints
+│   │       ├── serializers.py
+│   │       ├── urls.py
+│   │       ├── services/
+│   │       │   └── multimodal_rag/
+│   │       │       └── rag_pipeline.py   # LangGraph RAG graph + run_rag_query()
+│   │       ├── utils/
+│   │       │   ├── pdf_processor.py      # PDF parsing and image extraction
+│   │       │   ├── s3.py                 # MinIO/S3 upload helpers
+│   │       │   └── vector_db.py          # Qdrant upsert/search helpers
+│   │       ├── evals/
+│   │       │   ├── rag_eval.py           # LangSmith evaluators
+│   │       │   └── sample_dataset.json   # Starter eval examples
+│   │       └── management/commands/
+│   │           └── run_rag_eval.py       # `manage.py run_rag_eval` entry point
+│   ├── config/                           # Django settings (base, local, production)
+│   ├── requirements/                     # Pinned deps: base.txt, local.txt, production.txt
+│   ├── compose/                          # Dockerfile and entrypoint scripts
+│   ├── docker-compose.local.yml          # Full local dev stack
+│   ├── docker-compose.production.yml
+│   ├── justfile                          # `just` shortcuts for common tasks
+│   ├── pyproject.toml                    # Ruff, mypy, pytest config
+│   └── .envs/.local/                     # Local secrets (gitignored)
+│       ├── .django
+│       ├── .postgres
+│       └── .rag
+│
+└── frontend/                             # React SPA (Vite dev server on port 8081)
+    ├── src/
+    │   ├── auth/                         # JWT auth layer
+    │   │   ├── context/auth/             # AuthContext + AuthProvider (token storage)
+    │   │   ├── guard/                    # AuthGuard, GuestGuard, RoleBasedGuard
+    │   │   └── hooks/                    # useAuthContext hook
+    │   ├── pages/                        # Route-level page components
+    │   │   ├── auth/                     # login.tsx, register.tsx
+    │   │   ├── dashboard/                # dashboard.tsx, llm-chat.tsx, multimodal-rag.tsx
+    │   │   ├── playground/               # LLM playground (model/preset/temperature selectors)
+    │   │   └── 403.tsx / 404.tsx / 500.tsx
+    │   ├── sections/                     # Feature UI sections (compose pages)
+    │   │   ├── auth/                     # LoginView, RegisterView
+    │   │   ├── dashboard/                # Dashboard overview section
+    │   │   └── map/                      # Map section
+    │   ├── components/                   # Shared, reusable components
+    │   │   ├── ui/                       # shadcn/ui primitives (button, dialog, tabs …)
+    │   │   ├── hook-form/                # FormProvider wrapper
+    │   │   ├── form/                     # Custom TextField component
+    │   │   └── loading-screen/           # Full-page and splash loading states
+    │   ├── routes/                       # React Router v7 route definitions
+    │   │   ├── sections/                 # auth.tsx, dashboard.tsx, main.tsx (lazy imports)
+    │   │   ├── hooks/                    # useRouter, usePathname, useParams …
+    │   │   └── paths.ts                  # Centralised route path constants
+    │   ├── hooks/                        # Generic utility hooks
+    │   │   └── use-boolean, use-debounce, use-local-storage …
+    │   ├── theme/                        # Tailwind/shadcn theme provider + dark-mode toggle
+    │   ├── utils/                        # axios instance, formatters, storage helpers
+    │   ├── types/                        # Shared TypeScript types
+    │   ├── config-global.ts              # App-wide config (API base URL, etc.)
+    │   └── main.tsx                      # React entry point
+    ├── package.json
+    ├── vite.config.ts
+    ├── tsconfig.json
+    └── components.json                   # shadcn/ui component registry config
 ```
+
+---
+
+## Prerequisites
+
+| Tool | Version / notes |
+|------|------------------|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required for the backend and all supporting services |
+| [Node.js](https://nodejs.org/) | **20+** recommended |
+| npm or yarn | Comes with Node |
+
+Optional:
+
+- [Git](https://git-scm.com/) — clone the repo
+- OpenAI API key — required for the **multimodal RAG** pipeline (embeddings + summarisation)
+- Enough disk/RAM for Docker images and Ollama models (models are large)
 
 ---
 
 ## Quick start (local development)
 
-1. Configure backend environment files (see [Backend setup](#backend-setup)).
-2. Start the backend with Docker Compose.
+1. Create backend environment files (see [Backend setup](#backend-setup)).
+2. Start the backend stack with Docker Compose.
 3. Pull at least one Ollama model and create the MinIO bucket.
-4. Configure the frontend `.env` and run the dev server.
-5. Open the app, register or log in, and use the dashboard.
-
-Detailed steps for each part are below.
+4. Create `frontend/.env` and start the dev server.
+5. Open http://localhost:8081, register or log in, and explore the dashboard.
 
 ---
 
 ## Backend setup
 
-All backend services run via Docker Compose from the `backend` directory.
+All backend services run via Docker Compose from the `backend/` directory.
 
 ### 1. Create environment files
 
-The backend loads env from `backend/.envs/.local/`. These paths are **gitignored** — create them locally (do not commit API keys).
+The backend loads env vars from `backend/.envs/.local/`. These files are **gitignored** — create them locally and do not commit secrets.
 
 #### `backend/.envs/.local/.django`
 
 ```env
-# General
 USE_DOCKER=yes
 IPYTHONDIR=/app/.ipython
 
-# Redis
 REDIS_URL=redis://redis:6379/0
 
-# Celery Flower (monitoring UI)
 CELERY_FLOWER_USER=debug
 CELERY_FLOWER_PASSWORD=debug
 ```
@@ -93,14 +156,14 @@ POSTGRES_USER=debug
 POSTGRES_PASSWORD=debug
 ```
 
-`DATABASE_URL` is built automatically in the Django container entrypoint from these variables.
+`DATABASE_URL` is constructed automatically from these variables inside the container entrypoint.
 
 #### `backend/.envs/.local/.rag`
 
-Required for multimodal RAG (PDF processing and queries). Use **Docker service hostnames** (not `localhost`) so containers can reach each other.
+Required for the multimodal RAG endpoints. Use Docker service hostnames (not `localhost`) so containers can reach each other.
 
 ```env
-# OpenAI (required for RAG embeddings and summarization)
+# OpenAI (embeddings + summarisation)
 OPENAI_API_KEY=your-openai-api-key
 
 # Optional: LangSmith tracing and evals
@@ -113,7 +176,7 @@ LANGSMITH_PROJECT=promptly-rag
 QDRANT_HOST=qdrant
 QDRANT_PORT=6333
 
-# MinIO (S3-compatible object storage for extracted images)
+# MinIO (object storage for extracted PDF images)
 MINIO_HOST=minio
 MINIO_PORT=9000
 MINIO_ACCESS_KEY=minioadmin
@@ -125,41 +188,27 @@ AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_DEFAULT_REGION=us-east-1
 
-# Ollama (local chat; optional overrides)
+# Ollama (local LLM)
 OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=llama3
 ```
 
-Chat-only features can work without `OPENAI_API_KEY`; RAG endpoints will fail without it.
+Chat-only features work without `OPENAI_API_KEY`; RAG endpoints will fail without it.
 
 ### 2. Start the stack
-
-From the repository root:
 
 ```bash
 cd backend
 docker compose -f docker-compose.local.yml up --build
 ```
 
-First run can take several minutes (image builds, Python wheels, NLTK data).
+First run can take several minutes (image builds, Python wheels, NLTK data). To run detached: add `-d`. To stop: `docker compose -f docker-compose.local.yml down`.
 
-To run detached:
-
-```bash
-docker compose -f docker-compose.local.yml up --build -d
-```
-
-To stop:
-
-```bash
-docker compose -f docker-compose.local.yml down
-```
-
-### 3. Services started by Compose
+### 3. Services
 
 | Service | Container | Host port | Purpose |
 |---------|-------------|-----------|---------|
-| **django** | `app_local_django` | 8000 | REST API (Uvicorn + auto-migrate on start) |
+| **django** | `app_local_django` | 8000 | REST API (Uvicorn, auto-migrate on start) |
 | **postgres** | `app_local_postgres` | 5432 | Application database |
 | **redis** | `app_local_redis` | — | Celery broker |
 | **mailpit** | `app_local_mailpit` | 8025 | Dev email UI (SMTP on 1025 inside network) |
@@ -168,66 +217,63 @@ docker compose -f docker-compose.local.yml down
 | **qdrant** | `app_local_qdrant` | 6333, 6334 | Vector database |
 | **celeryworker** | `app_local_celeryworker` | — | Background tasks |
 | **celerybeat** | `app_local_celerybeat` | — | Scheduled tasks |
-| **flower** | `app_local_flower` | 5555 | Celery monitoring |
-
-Django also exposes port **8501** for optional Streamlit tooling (not started by default).
+| **flower** | `app_local_flower` | 5555 | Celery monitoring UI |
 
 ### 4. Pull an Ollama model
-
-The API defaults to model name `llama3`. Pull it (or another model and set `OLLAMA_MODEL`):
 
 ```bash
 docker exec -it app_local_ollama ollama pull llama3
 ```
 
-List models:
-
-```bash
-docker exec -it app_local_ollama ollama list
-```
+The API defaults to `llama3`. Override with `OLLAMA_MODEL` in `.rag`.
 
 ### 5. Create the MinIO bucket
 
-RAG stores extracted PDF images in the bucket named in `S3_BUCKET_NAME` (default: `pdf-images`).
+RAG stores extracted PDF images in the bucket defined by `S3_BUCKET_NAME` (default: `pdf-images`).
 
-1. Open **MinIO Console**: http://localhost:9201  
-2. Login: `minioadmin` / `minioadmin` (defaults from Compose)  
-3. Create a bucket named **`pdf-images`** (or match your `S3_BUCKET_NAME`).
+1. Open **MinIO Console**: http://localhost:9201
+2. Log in: `minioadmin` / `minioadmin`
+3. Create a bucket named **`pdf-images`**.
 
 ### 6. Create a Django superuser (optional)
-
-For Django admin and API docs restricted to admins:
 
 ```bash
 docker exec -it app_local_django python manage.py createsuperuser
 ```
 
-Admin: http://localhost:8000/admin/
+Django admin: http://localhost:8000/admin/
 
-### 7. Verify the API
+### 7. API endpoints
 
 | URL | Description |
 |-----|-------------|
-| http://localhost:8000/api/docs/ | Swagger UI (admin login may be required) |
+| http://localhost:8000/api/docs/ | Swagger UI |
 | http://localhost:8000/api/schema/ | OpenAPI schema |
-| http://localhost:8025 | Mailpit — emails sent in dev |
+| http://localhost:8025 | Mailpit dev email UI |
 
-**Main API prefixes:**
+**Auth**
 
-- `POST /api/auth/register` — create account  
-- `POST /api/auth/login` — JWT login  
-- `GET /api/auth/me` — current user (authenticated)  
-- `GET /api/llm/models` — list Ollama models  
-- `POST /api/llm/chat` — chat via Ollama  
-- `POST /api/llm/rag/process` — ingest a PDF  
-- `POST /api/llm/rag/query` — query indexed content  
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/register` | Create account |
+| `POST` | `/api/auth/login` | Get JWT tokens |
+| `GET` | `/api/auth/me` | Current user (requires token) |
 
-CORS is configured for `http://localhost:8081` (frontend dev server).
+**LLM / RAG**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/llm/models` | List available Ollama models |
+| `POST` | `/api/llm/chat` | Chat with an Ollama model |
+| `POST` | `/api/llm/rag/process` | Ingest and index a PDF |
+| `POST` | `/api/llm/rag/query` | Query indexed PDF content |
+
+CORS is configured for `http://localhost:8081` by default.
 
 ### 8. Useful backend commands
 
 ```bash
-# Run migrations manually (also run on container start)
+# Run migrations (also runs on container start)
 docker exec -it app_local_django python manage.py migrate
 
 # Django shell
@@ -239,7 +285,7 @@ docker exec -it app_local_django pytest
 # View logs for one service
 docker compose -f docker-compose.local.yml logs -f django
 
-# Run LangSmith RAG evals (requires indexed PDFs + OPENAI_API_KEY)
+# LangSmith RAG evals (requires indexed PDFs + OPENAI_API_KEY)
 docker exec -it app_local_django python manage.py run_rag_eval
 
 # Run evals locally without uploading to LangSmith
@@ -250,58 +296,17 @@ just rag-eval
 just rag-eval --local
 ```
 
-More backend notes: [backend/README.md](backend/README.md) (Cookiecutter Django boilerplate docs).
-
-### LangSmith tracing and evals
-
-1. Create an API key at [smith.langchain.com](https://smith.langchain.com) and set `LANGSMITH_API_KEY` in `backend/.envs/.local/.rag` (see env block above).
-2. Restart Django so tracing env vars load: `docker compose -f docker-compose.local.yml restart django`.
-3. Process at least one PDF via `POST /api/llm/rag/process`, then hit `POST /api/llm/rag/query` — traces appear under the `LANGSMITH_PROJECT` (default: `promptly-rag`).
-4. Run offline evals against the sample dataset:
-
-```bash
-docker exec -it app_local_django python manage.py run_rag_eval
-```
-
-Options:
-
-| Flag | Description |
-|------|-------------|
-| `--local` | Run evaluators without uploading to LangSmith |
-| `--sync-dataset` | Push examples to a LangSmith dataset before evaluating |
-| `--dataset-file <path>` | Path to a JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
-| `--dataset-name <name>` | LangSmith dataset name (default: `promptly-multimodal-rag`) |
-| `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`) |
-| `--max-concurrency <n>` | Parallel eval runs (default: 1) |
-
-**Built-in evaluators** (defined in `backend/app/llm/evals/rag_eval.py`):
-
-| Evaluator | What it checks |
-|-----------|----------------|
-| `has_context` | Retrieved context contains at least one text chunk or image |
-| `answer_not_empty` | Answer is non-empty and does not fall back to "don't have enough context" |
-| `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
-
-Customize `backend/app/llm/evals/sample_dataset.json` with reference answers after you know what your indexed PDFs should return.
-
 ---
 
 ## Frontend setup
 
-The frontend is a Vite + React SPA that talks to the Django API on port **8000**. The dev server runs on port **8081**.
+The frontend is a Vite + React SPA. The dev server runs on port **8081** and proxies API requests to the Django backend on port **8000**.
 
 ### 1. Install dependencies
 
 ```bash
 cd frontend
 npm install
-```
-
-Or with Yarn:
-
-```bash
-cd frontend
-yarn install
 ```
 
 ### 2. Environment variables
@@ -315,7 +320,7 @@ VITE_ASSETS_API=http://localhost:8000
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_HOST_API` | Base URL for Axios API calls (must match Django) |
+| `VITE_HOST_API` | Base URL for all Axios API calls |
 | `VITE_ASSETS_API` | Base URL for static/media assets |
 
 Restart the dev server after changing `.env`.
@@ -326,23 +331,20 @@ Restart the dev server after changing `.env`.
 npm run dev
 ```
 
-Or:
-
-```bash
-yarn dev
-```
-
 Open: **http://localhost:8081**
 
-### 4. Use the app
+### 4. Available routes
 
-1. Ensure the backend is up (`docker compose` in `backend/`).
-2. Register at http://localhost:8081/register or log in at http://localhost:8081/login.
-3. After login you are redirected to the dashboard:
-   - **LLM chat** — Ollama-backed chat (`/dashboard/llm-chat`)
-   - **Multimodal RAG** — upload/query PDFs (`/dashboard/multimodal-rag`)
+| Path | Description |
+|------|-------------|
+| `/login` | Sign in with email + password |
+| `/register` | Create a new account |
+| `/dashboard` | Overview landing page (requires auth) |
+| `/dashboard/llm-chat` | Chat with a local Ollama model |
+| `/dashboard/multimodal-rag` | Upload PDFs and query them with RAG |
+| `/playground` | LLM playground with model/preset/temperature controls |
 
-JWT tokens are stored client-side; API requests use `Authorization: Bearer <token>`.
+JWT tokens are stored client-side; all authenticated requests include `Authorization: Bearer <token>`.
 
 ### 5. Frontend scripts
 
@@ -350,34 +352,75 @@ JWT tokens are stored client-side; API requests use `Authorization: Bearer <toke
 |---------|-------------|
 | `npm run dev` | Dev server with HMR (port 8081) |
 | `npm run build` | Production build to `dist/` |
-| `npm run preview` | Preview production build |
-| `npm run lint` | ESLint |
+| `npm run preview` | Preview the production build |
+| `npm run lint` | Run ESLint |
 | `npm run lint:fix` | ESLint with auto-fix |
+| `npm run fm:fix` | Prettier formatting |
+| `npm run fix:all` | Lint + format in one step |
+| `npm run tsc:watch` | TypeScript type-check in watch mode |
 
-### 6. Production build (optional)
+### 6. Key frontend dependencies
+
+| Package | Role |
+|---------|------|
+| `react` 19, `react-dom` | UI framework |
+| `react-router-dom` v7 | Client-side routing with lazy loading |
+| `axios` | HTTP client (configured in `src/utils/axios.ts`) |
+| `react-hook-form` + `zod` | Form state and schema validation |
+| `@radix-ui/*` + `shadcn/ui` | Accessible, unstyled UI primitives |
+| `tailwindcss` 4 | Utility-first styling |
+| `framer-motion` | Animations |
+| `@excalidraw/excalidraw` | Embedded whiteboard / diagram tool |
+| `lucide-react` | Icon library |
+
+---
+
+## LangSmith tracing and evals
+
+1. Create an API key at [smith.langchain.com](https://smith.langchain.com) and set `LANGSMITH_API_KEY` in `backend/.envs/.local/.rag`.
+2. Restart Django: `docker compose -f docker-compose.local.yml restart django`.
+3. Process a PDF via `POST /api/llm/rag/process`, then query via `POST /api/llm/rag/query` — traces appear under `LANGSMITH_PROJECT`.
+4. Run offline evals:
 
 ```bash
-npm run build
+docker exec -it app_local_django python manage.py run_rag_eval
 ```
 
-Serve the `frontend/dist` folder with any static host. Set `VITE_HOST_API` to your deployed API URL at **build time**.
+**Eval flags**
+
+| Flag | Description |
+|------|-------------|
+| `--local` | Run evaluators without uploading to LangSmith |
+| `--sync-dataset` | Push examples to a LangSmith dataset first |
+| `--dataset-file <path>` | JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
+| `--dataset-name <name>` | LangSmith dataset name (default: `promptly-multimodal-rag`) |
+| `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`) |
+| `--max-concurrency <n>` | Parallel eval runs (default: 1) |
+
+**Built-in evaluators** (defined in `backend/app/llm/evals/rag_eval.py`)
+
+| Evaluator | What it checks |
+|-----------|----------------|
+| `has_context` | Retrieved context contains at least one text chunk or image |
+| `answer_not_empty` | Answer is non-empty and does not fall back to "don't have enough context" |
+| `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
+
+Customise `backend/app/llm/evals/sample_dataset.json` with reference answers once you know what your indexed PDFs should return.
 
 ---
 
 ## End-to-end checklist
 
-Use this to confirm everything works:
-
-- [ ] `backend/.envs/.local/.django`, `.postgres`, and `.rag` exist  
-- [ ] `docker compose -f docker-compose.local.yml up --build` runs without errors  
-- [ ] Ollama model pulled (`ollama list` shows e.g. `llama3`)  
-- [ ] MinIO bucket `pdf-images` exists  
-- [ ] http://localhost:8000/api/docs/ loads  
-- [ ] `frontend/.env` points to `http://localhost:8000`  
-- [ ] `npm run dev` → http://localhost:8081 loads  
-- [ ] Register/login succeeds  
-- [ ] LLM chat returns a response  
-- [ ] (Optional) RAG: upload PDF, then query (needs valid `OPENAI_API_KEY`)
+- [ ] `backend/.envs/.local/.django`, `.postgres`, and `.rag` files exist
+- [ ] `docker compose -f docker-compose.local.yml up --build` completes without errors
+- [ ] Ollama model pulled (`ollama list` shows e.g. `llama3`)
+- [ ] MinIO bucket `pdf-images` created at http://localhost:9201
+- [ ] http://localhost:8000/api/docs/ loads
+- [ ] `frontend/.env` points to `http://localhost:8000`
+- [ ] `npm run dev` starts and http://localhost:8081 loads
+- [ ] Register / login succeeds
+- [ ] LLM chat returns a response
+- [ ] (Optional) RAG: upload a PDF, then query it (requires valid `OPENAI_API_KEY`)
 
 ---
 
@@ -389,22 +432,22 @@ Use this to confirm everything works:
 |-------|-------------|
 | Port already in use | Stop other services on 8000, 5432, 11434, 6333, 9200, 9201, or change Compose port mappings |
 | `PostgreSQL is available` never appears | Check `app_local_postgres` logs; verify `.postgres` env file |
-| Ollama chat 502 / “Failed to reach Ollama” | Ensure `app_local_ollama` is running; pull a model (`ollama pull llama3`) |
-| RAG fails on S3/MinIO | Create the `pdf-images` bucket in MinIO console |
+| Ollama chat 502 / "Failed to reach Ollama" | Ensure `app_local_ollama` is running and a model has been pulled |
+| RAG fails on S3/MinIO | Create the `pdf-images` bucket in the MinIO console |
 | RAG OpenAI errors | Set a valid `OPENAI_API_KEY` in `.rag` and restart Django |
-| CORS errors from frontend | Backend `CORS_ALLOWED_ORIGINS` must include `http://localhost:8081` (default in local settings) |
+| CORS errors from frontend | `CORS_ALLOWED_ORIGINS` must include `http://localhost:8081` (default in local settings) |
 
 ### Frontend
 
 | Issue | What to try |
 |-------|-------------|
-| API calls go to wrong host | Check `VITE_HOST_API` in `.env`; restart `npm run dev` |
+| API calls go to wrong host | Check `VITE_HOST_API` in `.env` and restart `npm run dev` |
 | 401 on dashboard routes | Log in again; JWT may have expired |
-| Blank page after env change | Restart Vite; clear browser storage for the site |
+| Blank page after `.env` change | Restart Vite and clear browser storage for the site |
 
 ### Windows notes
 
-- Run Compose from `backend` with forward slashes or `.\docker-compose.local.yml` as in PowerShell examples above.
+- Run Compose from the `backend/` directory using `.\docker-compose.local.yml` in PowerShell.
 - Ensure Docker Desktop is running with WSL2 or Linux containers enabled.
 - If line-ending issues appear in shell scripts, the Dockerfiles already strip `\r` in entrypoint scripts.
 
