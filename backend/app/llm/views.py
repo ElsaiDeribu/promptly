@@ -10,11 +10,13 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from langchain_core.messages import HumanMessage
+
+from .agents.rag_agent import rag_agent
 from .serializers import ProcessPDFSerializer
 from .serializers import RAGQuerySerializer
 from .services.multimodal_rag.rag_pipeline import create_processing_graph
 from .services.multimodal_rag.rag_pipeline import create_processing_state
-from .services.multimodal_rag.rag_pipeline import run_rag_query
 
 
 def _ollama_base_url() -> str:
@@ -219,7 +221,12 @@ class RAGQueryView(APIView):
         question = serializer.validated_data["question"]
 
         try:
-            result = run_rag_query(question)
+            result = rag_agent.invoke(
+                {"messages": [HumanMessage(content=question)]},
+                config={"run_name": "rag_agent_query"},
+            )
+            messages = result.get("messages", [])
+            result = {"answer": messages[-1].content if messages else "", "messages": messages}
 
             return Response(
                 {

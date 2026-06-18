@@ -10,12 +10,14 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
 from langsmith import Client
 from langsmith import evaluate
 from langsmith import traceable
 from langsmith.schemas import Example
 
-from app.llm.services.multimodal_rag.rag_pipeline import run_rag_query
+from app.llm.agents.rag_agent import rag_agent
 
 SAMPLE_DATASET_PATH = Path(__file__).parent / "sample_dataset.json"
 DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
@@ -23,7 +25,12 @@ DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
 
 @traceable(name="rag_eval_target")
 def rag_eval_target(inputs: dict[str, Any]) -> dict[str, Any]:
-    return run_rag_query(inputs["question"])
+    result = rag_agent.invoke(
+        {"messages": [HumanMessage(content=inputs["question"])]},
+        config={"run_name": "rag_agent_query"},
+    )
+    messages = result.get("messages", [])
+    return {"answer": messages[-1].content if messages else "", "messages": messages}
 
 
 def has_retrieved_context(
@@ -31,8 +38,13 @@ def has_retrieved_context(
     outputs: dict[str, Any],
     reference_outputs: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    context = outputs.get("context") or {}
-    has_context = bool(context.get("texts") or context.get("images"))
+    messages = outputs.get("messages") or []
+    has_context = any(
+        isinstance(m, ToolMessage)
+        and m.name == "vector_rag_tool"
+        and "No relevant context found" not in m.content
+        for m in messages
+    )
     return {"key": "has_context", "score": 1.0 if has_context else 0.0}
 
 

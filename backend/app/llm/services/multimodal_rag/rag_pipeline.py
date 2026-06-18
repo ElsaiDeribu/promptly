@@ -1,26 +1,18 @@
 import logging
 from base64 import b64decode
-from base64 import b64encode
 from typing import TypedDict
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage
-from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
-from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langsmith import traceable
-
 load_dotenv()
-
 from ....llm.utils.pdf_processor import get_images_base64
 from ....llm.utils.pdf_processor import get_tables
 from ....llm.utils.pdf_processor import process_pdf
@@ -44,15 +36,6 @@ class ProcessingState(TypedDict):
     object_store: S3Wrapper
 
 
-class ChatState(TypedDict):
-    """State for chat/query workflow"""
-    messages: list[HumanMessage | SystemMessage]
-    context: dict[str, list[Document]]
-    current_response: str
-    vector_db: VectorDBWrapper
-    object_store: S3Wrapper
-
-
 def create_processing_state(file_path: str) -> ProcessingState:
     """
     Create initial state for PDF processing.
@@ -70,28 +53,6 @@ def create_processing_state(file_path: str) -> ProcessingState:
         "file_path": file_path,
         "chunks": [],
         "summaries": {},
-        "vector_db": VectorDBWrapper(),
-        "object_store": S3Wrapper(),
-    }
-
-
-def create_chat_state(question: str) -> ChatState:
-    """
-    Create initial state for chat queries.
-
-    Args:
-        question: User's question to answer
-
-    Returns:
-        ChatState: Initial state dictionary for chat workflow
-
-    Raises:
-        RuntimeError: If the vector DB is not initialized
-    """
-    return {
-        "messages": [HumanMessage(content=question)],
-        "context": {},
-        "current_response": "",
         "vector_db": VectorDBWrapper(),
         "object_store": S3Wrapper(),
     }
@@ -279,84 +240,6 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
         raise
 
 
-def parse_docs(docs, object_store):
-    """Split images and texts, loading images from object store as base64 data URLs."""
-    images = []
-    text = []
-    for doc in docs:
-        if "image_key" in doc.metadata:
-            img_key = doc.metadata["image_key"]
-            img_bytes = object_store.get_file(object_name=img_key)
-            if img_bytes:
-                b64 = b64encode(img_bytes).decode("utf-8")
-                images.append(f"data:image/jpeg;base64,{b64}")
-        else:
-            text.append(doc.page_content)
-    return {"images": images, "texts": text}
-
-
-def build_prompt(kwargs):
-    """Build multimodal prompt messages with text and image context."""
-    docs_by_type = kwargs["context"]
-    user_question = kwargs["question"]
-
-    context_text = ""
-    if docs_by_type["texts"]:
-        for text_element in docs_by_type["texts"]:
-            context_text += text_element
-
-    prompt_template = f"""
-    Answer the question based only on the following context, which can include text, tables, and the below image.
-    Context: {context_text}
-    Question: {user_question}
-    """
-
-    prompt_content: list[dict[str, str]] = [{"type": "text", "text": prompt_template}]
-    for image_url in docs_by_type["images"]:
-        prompt_content.append(
-            {"type": "image_url", "image_url": {"url": image_url}},
-        )
-
-    return [HumanMessage(content=prompt_content)]
-
-
-def retrieve_and_generate(state: ChatState) -> ChatState:
-    """Retrieve context and generate response using retrieved context"""
-    try:
-        # Retrieve context
-        vector_db = state["vector_db"]
-        query = state["messages"][-1].content
-        docs = vector_db.similarity_search(query)
-        parsed_docs = parse_docs(docs=docs, object_store=state["object_store"])
-        state["context"] = parsed_docs
-
-        # Check if we have any relevant context
-        if not parsed_docs["texts"] and not parsed_docs["images"]:
-            state["current_response"] = (
-                "I don't have enough context to answer your question. Please try asking something related to the documents that have been processed."
-            )
-            return state
-
-        chain_with_sources = {
-            "context": lambda _: parsed_docs,
-            "question": RunnablePassthrough(),
-        } | RunnablePassthrough().assign(
-            response=(
-                RunnableLambda(build_prompt)
-                | ChatOpenAI(model="gpt-4o-mini")
-                | StrOutputParser()
-            ),
-        )
-
-        result = chain_with_sources.invoke(state["messages"][-1].content)
-        state["current_response"] = result["response"]
-        return state
-    except Exception as e:
-        logger.error(f"State ==> {state}")
-        logger.error(f"Error retrieving context or generating response: {e!s}")
-        raise
-
-
 def create_processing_graph() -> CompiledStateGraph:
     """Create graph for initial PDF processing"""
     workflow = StateGraph(ProcessingState)
@@ -370,31 +253,4 @@ def create_processing_graph() -> CompiledStateGraph:
     workflow.add_edge("load_summaries", END)
 
     return workflow.compile()
-
-
-def create_chat_graph() -> CompiledStateGraph:
-    """Create graph for question answering"""
-    workflow = StateGraph(ChatState)
-    workflow.add_node("retrieve_and_generate", retrieve_and_generate)
-
-    workflow.add_edge(START, "retrieve_and_generate")
-    workflow.add_edge("retrieve_and_generate", END)
-
-    return workflow.compile()
-
-
-@traceable(name="multimodal_rag_query")
-def run_rag_query(question: str) -> dict:
-    """Run the chat RAG graph and return answer plus retrieved context."""
-    chat_graph = create_chat_graph()
-    result = chat_graph.invoke(create_chat_state(question))
-
-    answer = result["current_response"]
-    if not isinstance(answer, str):
-        answer = answer.get("response", "")
-
-    return {
-        "answer": answer,
-        "context": result.get("context", {"texts": [], "images": []}),
-    }
 
