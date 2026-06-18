@@ -1,6 +1,6 @@
 # Promptly
 
-Promptly is a full-stack application for experimenting with LLMs. It features a Django REST API backend and a React SPA frontend, supporting JWT authentication, local LLM chat via Ollama, and a multimodal RAG pipeline over PDFs using Qdrant, MinIO, and OpenAI. The RAG pipeline includes integrated evaluation (evals) for retrieval quality, and leverages LangChain, LangGraph, and LangSmith for advanced orchestration, retrieval, and evaluation workflows.
+Promptly is a full-stack application for experimenting with LLMs. It features a Django REST API backend and a React SPA frontend, supporting JWT authentication, local LLM chat via Ollama, and a multimodal RAG pipeline over PDFs using Qdrant, MinIO, and OpenAI. The RAG pipeline is powered by a LangGraph ReAct agent that uses a dedicated retrieval tool to fetch context before generating grounded answers. It includes integrated evaluation (evals) for retrieval quality, and leverages LangChain, LangGraph, and LangSmith for advanced orchestration, retrieval, and evaluation workflows.
 
 ---
 
@@ -37,9 +37,13 @@ promptly/
 │   │       ├── views.py                  # API views: models, chat, RAG endpoints
 │   │       ├── serializers.py
 │   │       ├── urls.py
+│   │       ├── agents/
+│   │       │   └── rag_agent.py          # LangGraph ReAct agent (orchestrates retrieval + generation)
+│   │       ├── tools/
+│   │       │   └── vector_rag.py         # vector_rag_tool: similarity search → raw context string
 │   │       ├── services/
 │   │       │   └── multimodal_rag/
-│   │       │       └── rag_pipeline.py   # LangGraph RAG graph + run_rag_query()
+│   │       │       └── rag_pipeline.py   # PDF ingestion pipeline (pre-process, summarise, index)
 │   │       ├── utils/
 │   │       │   ├── pdf_processor.py      # PDF parsing and image extraction
 │   │       │   ├── s3.py                 # MinIO/S3 upload helpers
@@ -379,7 +383,7 @@ JWT tokens are stored client-side; all authenticated requests include `Authoriza
 
 1. Create an API key at [smith.langchain.com](https://smith.langchain.com) and set `LANGSMITH_API_KEY` in `backend/.envs/.local/.rag`.
 2. Restart Django: `docker compose -f docker-compose.local.yml restart django`.
-3. Process a PDF via `POST /api/llm/rag/process`, then query via `POST /api/llm/rag/query` — traces appear under `LANGSMITH_PROJECT`.
+3. Process a PDF via `POST /api/llm/rag/process`, then query via `POST /api/llm/rag/query` — the ReAct agent's tool calls and LLM steps appear as nested traces under `LANGSMITH_PROJECT`.
 4. Run offline evals:
 
 ```bash
@@ -401,7 +405,7 @@ docker exec -it app_local_django python manage.py run_rag_eval
 
 | Evaluator | What it checks |
 |-----------|----------------|
-| `has_context` | Retrieved context contains at least one text chunk or image |
+| `has_context` | `vector_rag_tool` was called by the agent and returned real content (not the "no context" fallback) |
 | `answer_not_empty` | Answer is non-empty and does not fall back to "don't have enough context" |
 | `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
 
