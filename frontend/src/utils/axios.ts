@@ -36,6 +36,6 @@ export const endpoints = {
     chat: '/api/llm/chat',
     models: '/api/llm/models',
     ragProcess: '/api/llm/rag/process',
-    ragQuery: '/api/llm/rag/query',
+    ragQueryStream: '/api/llm/rag/query/stream',
   },
 };

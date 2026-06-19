@@ -2,18 +2,16 @@ import { Button } from '@/components/ui/button';
 import axios, { endpoints } from '@/utils/axios';
 import { Textarea } from '@/components/ui/textarea';
 import LoadingButton from '@/components/ui/loading-button';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { Card, CardTitle, CardFooter, CardHeader, CardContent, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { HOST_API } from '@/config-global';
 
 type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  context?: {
-    texts?: string[];
-    images?: string[];
-  };
+  isStreaming?: boolean;
 };
 
 function makeId() {
@@ -82,7 +80,9 @@ export default function MultimodalRAG() {
     }
   }
 
-  async function send() {
+  const abortRef = useRef<AbortController | null>(null);
+
+  const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || loading) return;
 
@@ -90,37 +90,82 @@ export default function MultimodalRAG() {
     setLoading(true);
 
     const userMessage: ChatMessage = { id: makeId(), role: 'user', content: text };
-    setMessages((prev) => [...prev, userMessage]);
+    const assistantId = makeId();
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+    };
+
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setDraft('');
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const res = await axios.post(endpoints.llm.ragQuery, {
-        question: text,
+      const token = sessionStorage.getItem('accessToken');
+      const res = await fetch(`${HOST_API}${endpoints.llm.ragQueryStream}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ question: text }),
+        signal: controller.signal,
       });
 
-      const answer = res?.data?.answer || '(empty response)';
-      const context = res?.data?.context || {};
-      
-      const assistantMessage: ChatMessage = {
-        id: makeId(),
-        role: 'assistant',
-        content: answer,
-        context: context,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody?.error || errBody?.detail || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+
+          const payload = JSON.parse(line.slice(6));
+
+          if (payload.token) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: m.content + payload.token } : m
+              )
+            );
+          } else if (payload.error) {
+            setError(payload.error);
+          }
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m))
+      );
     } catch (e: any) {
+      if (e.name === 'AbortError') return;
       const message =
         (typeof e === 'string' && e) ||
         e?.error ||
-        e?.details?.error ||
-        e?.details?.detail ||
         e?.message ||
         'Failed to send message';
       setError(message);
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
-  }
+  }, [draft, loading]);
 
   function clearChat() {
     setMessages([]);
@@ -224,38 +269,22 @@ export default function MultimodalRAG() {
                       <div className="mb-1 text-[11px] opacity-80">
                         {m.role === 'user' ? 'You' : 'Assistant'}
                       </div>
-                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
-                    </div>
-
-                    {/* Display context images if available */}
-                    {m.role === 'assistant' && m.context?.images && m.context.images.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2 pl-2">
-                        {m.context.images.map((imgUrl, idx) => (
-                          <div key={idx} className="overflow-hidden rounded-md border">
-                            <img
-                              src={imgUrl}
-                              alt={`Context ${idx + 1}`}
-                              className="h-32 w-auto object-contain"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
-                          </div>
-                        ))}
+                      <div className="whitespace-pre-wrap break-words">
+                        {m.content}
+                        {m.isStreaming && !m.content && (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-foreground/60" />
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-foreground/60 animation-delay-200" />
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-foreground/60 animation-delay-400" />
+                          </span>
+                        )}
+                        {m.isStreaming && m.content && (
+                          <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/70" />
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 ))}
-                {loading ? (
-                  <div className="max-w-[85%] self-start rounded-lg bg-muted px-3 py-2 text-sm">
-                    <div className="mb-1 text-[11px] opacity-80">Assistant</div>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 animate-pulse rounded-full bg-foreground/60" />
-                      <div className="h-2 w-2 animate-pulse rounded-full bg-foreground/60 animation-delay-200" />
-                      <div className="h-2 w-2 animate-pulse rounded-full bg-foreground/60 animation-delay-400" />
-                    </div>
-                  </div>
-                ) : null}
                 <div ref={bottomRef} />
               </div>
             )}

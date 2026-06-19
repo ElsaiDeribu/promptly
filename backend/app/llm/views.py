@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from urllib.error import HTTPError
@@ -6,10 +7,13 @@ from urllib.error import URLError
 from urllib.request import Request
 from urllib.request import urlopen
 
+from django.http import StreamingHttpResponse
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from langchain_core.messages import AIMessageChunk
 from langchain_core.messages import HumanMessage
 
 from .agents.rag_agent import rag_agent
@@ -17,6 +21,8 @@ from .serializers import ProcessPDFSerializer
 from .serializers import RAGQuerySerializer
 from .services.multimodal_rag.rag_pipeline import create_processing_graph
 from .services.multimodal_rag.rag_pipeline import create_processing_state
+
+logger = logging.getLogger(__name__)
 
 
 def _ollama_base_url() -> str:
@@ -193,20 +199,49 @@ class ProcessPDFView(APIView):
             )
 
 
-class RAGQueryView(APIView):
-    """
-    Query the multimodal RAG system.
+def _sse_event(data: dict) -> str:
+    """Format a dict as a Server-Sent Event line."""
+    return f"data: {json.dumps(data)}\n\n"
 
-    This endpoint accepts a question and retrieves relevant context from processed
-    documents (text, tables, images) to generate an answer.
+
+async def _rag_stream_generator(question: str):
+    """Yield SSE events with streamed tokens from the RAG agent.
+
+    Uses LangChain's ``astream_events`` (v2) so each LLM token is forwarded
+    to the client as soon as it is produced.  The async generator is required
+    by Django's ASGI handler for ``StreamingHttpResponse``.
+    """
+    try:
+        async for event in rag_agent.astream_events(
+            {"messages": [HumanMessage(content=question)]},
+            version="v2",
+            config={"run_name": "rag_agent_query"},
+        ):
+            if event["event"] == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if isinstance(chunk, AIMessageChunk) and chunk.content:
+                    yield _sse_event({"token": chunk.content})
+        yield _sse_event({"done": True})
+    except Exception as e:
+        logger.exception("RAG stream error")
+        yield _sse_event({"error": str(e)})
+
+
+class RAGQueryStreamView(APIView):
+    """
+    Stream a RAG answer as Server-Sent Events.
+
+    DRF's ``APIView`` handles JWT authentication and permissions before the
+    view method runs.  We then return Django's ``StreamingHttpResponse``
+    which bypasses the DRF renderer pipeline and streams SSE events directly.
 
     Request body:
       - question: string (required)
 
-    Response:
-      - question: string (the original question)
-      - answer: string (generated answer)
-      - context: object with texts and image URLs
+    Response: ``text/event-stream`` with JSON payloads:
+      - ``{"token": "..."}`` – partial answer token
+      - ``{"done": true}``   – stream finished
+      - ``{"error": "..."}`` – an error occurred
     """
 
     def post(self, request):
@@ -220,25 +255,10 @@ class RAGQueryView(APIView):
 
         question = serializer.validated_data["question"]
 
-        try:
-            result = rag_agent.invoke(
-                {"messages": [HumanMessage(content=question)]},
-                config={"run_name": "rag_agent_query"},
-            )
-            messages = result.get("messages", [])
-            result = {"answer": messages[-1].content if messages else "", "messages": messages}
-
-            return Response(
-                {
-                    "question": question,
-                    "answer": result["answer"],
-                    "context": result.get("context", {}),
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as e:
-            return Response(
-                {"error": "Failed to process query", "details": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        response = StreamingHttpResponse(
+            _rag_stream_generator(question),
+            content_type="text/event-stream",
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
