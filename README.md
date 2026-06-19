@@ -2,6 +2,8 @@
 
 Promptly is a full-stack application for experimenting with LLMs. It features a Django REST API backend and a React SPA frontend, supporting JWT authentication, local LLM chat via Ollama, and a multimodal RAG pipeline over PDFs using Qdrant, MinIO, and OpenAI. The RAG pipeline is powered by a LangGraph ReAct agent that uses a dedicated retrieval tool to fetch context before generating grounded answers. It includes integrated evaluation (evals) for retrieval quality, and leverages LangChain, LangGraph, and LangSmith for advanced orchestration, retrieval, and evaluation workflows.
 
+Goal: Build a self-improving multi-agent system that continuously enhances retrieval, reasoning, and response quality through evaluation-driven feedback loops.
+
 ---
 
 ## Tech stack
