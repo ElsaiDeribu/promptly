@@ -6,15 +6,15 @@ Promptly is a full-stack application for experimenting with LLMs. It features a 
 
 ## Tech stack
 
-| Layer | Stack |
-|-------|--------|
-| **Backend** | Python 3.12, Django 5, Django REST Framework, Celery, PostgreSQL, Redis |
-| **LLM / AI** | Ollama (local models), OpenAI (embeddings + summaries),LangChain, LangGraph, LangSmith |
-| **Storage** | Qdrant (vector DB), MinIO (S3-compatible object storage) |
-| **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS 4 |
-| **UI components** | shadcn/ui (Radix UI primitives), Lucide icons, Framer Motion |
-| **Forms / validation** | React Hook Form, Zod |
-| **HTTP / routing** | Axios, React Router v7 |
+| Layer                  | Stack                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| **Backend**            | Python 3.12, Django 5, Django REST Framework, Celery, PostgreSQL, Redis                |
+| **LLM / AI**           | Ollama (local models), OpenAI (embeddings + summaries),LangChain, LangGraph, LangSmith |
+| **Storage**            | Qdrant (vector DB), MinIO (S3-compatible object storage)                               |
+| **Frontend**           | React 19, TypeScript, Vite 6, Tailwind CSS 4                                           |
+| **UI components**      | shadcn/ui (Radix UI primitives), Lucide icons, Framer Motion                           |
+| **Forms / validation** | React Hook Form, Zod                                                                   |
+| **HTTP / routing**     | Axios, React Router v7                                                                 |
 
 ---
 
@@ -106,11 +106,11 @@ promptly/
 
 ## Prerequisites
 
-| Tool | Version / notes |
-|------|------------------|
+| Tool                                                              | Version / notes                                      |
+| ----------------------------------------------------------------- | ---------------------------------------------------- |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required for the backend and all supporting services |
-| [Node.js](https://nodejs.org/) | **20+** recommended |
-| npm or yarn | Comes with Node |
+| [Node.js](https://nodejs.org/)                                    | **20+** recommended                                  |
+| npm or yarn                                                       | Comes with Node                                      |
 
 Optional:
 
@@ -193,7 +193,7 @@ AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_DEFAULT_REGION=us-east-1
 
 # Ollama (local LLM)
-OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_BASE_URL=http://ollama:13000
 OLLAMA_MODEL=llama3
 ```
 
@@ -210,18 +210,18 @@ First run can take several minutes (image builds, Python wheels, NLTK data). To 
 
 ### 3. Services
 
-| Service | Container | Host port | Purpose |
-|---------|-------------|-----------|---------|
-| **django** | `app_local_django` | 8000 | REST API (Uvicorn, auto-migrate on start) |
-| **postgres** | `app_local_postgres` | 5432 | Application database |
-| **redis** | `app_local_redis` | — | Celery broker |
-| **mailpit** | `app_local_mailpit` | 8025 | Dev email UI (SMTP on 1025 inside network) |
-| **ollama** | `app_local_ollama` | 11434 | Local LLM runtime |
-| **minio** | `app_local_minio` | 9200 (API), 9201 (console) | Object storage |
-| **qdrant** | `app_local_qdrant` | 6333, 6334 | Vector database |
-| **celeryworker** | `app_local_celeryworker` | — | Background tasks |
-| **celerybeat** | `app_local_celerybeat` | — | Scheduled tasks |
-| **flower** | `app_local_flower` | 5555 | Celery monitoring UI |
+| Service          | Container                | Host port                  | Purpose                                    |
+| ---------------- | ------------------------ | -------------------------- | ------------------------------------------ |
+| **django**       | `app_local_django`       | 8000                       | REST API (Uvicorn, auto-migrate on start)  |
+| **postgres**     | `app_local_postgres`     | 5432                       | Application database                       |
+| **redis**        | `app_local_redis`        | —                          | Celery broker                              |
+| **mailpit**      | `app_local_mailpit`      | 8025                       | Dev email UI (SMTP on 1025 inside network) |
+| **ollama**       | `app_local_ollama`       | 13000                      | Local LLM runtime                          |
+| **minio**        | `app_local_minio`        | 9200 (API), 9201 (console) | Object storage                             |
+| **qdrant**       | `app_local_qdrant`       | 6333, 6334                 | Vector database                            |
+| **celeryworker** | `app_local_celeryworker` | —                          | Background tasks                           |
+| **celerybeat**   | `app_local_celerybeat`   | —                          | Scheduled tasks                            |
+| **flower**       | `app_local_flower`       | 5555                       | Celery monitoring UI                       |
 
 ### 4. Pull an Ollama model
 
@@ -249,28 +249,28 @@ Django admin: http://localhost:8000/admin/
 
 ### 7. API endpoints
 
-| URL | Description |
-|-----|-------------|
-| http://localhost:8000/api/docs/ | Swagger UI |
-| http://localhost:8000/api/schema/ | OpenAPI schema |
-| http://localhost:8025 | Mailpit dev email UI |
+| URL                               | Description          |
+| --------------------------------- | -------------------- |
+| http://localhost:8000/api/docs/   | Swagger UI           |
+| http://localhost:8000/api/schema/ | OpenAPI schema       |
+| http://localhost:8025             | Mailpit dev email UI |
 
 **Auth**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/auth/register` | Create account |
-| `POST` | `/api/auth/login` | Get JWT tokens |
-| `GET` | `/api/auth/me` | Current user (requires token) |
+| Method | Path                 | Description                   |
+| ------ | -------------------- | ----------------------------- |
+| `POST` | `/api/auth/register` | Create account                |
+| `POST` | `/api/auth/login`    | Get JWT tokens                |
+| `GET`  | `/api/auth/me`       | Current user (requires token) |
 
 **LLM / RAG**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/llm/models` | List available Ollama models |
-| `POST` | `/api/llm/chat` | Chat with an Ollama model |
-| `POST` | `/api/llm/rag/process` | Ingest and index a PDF |
-| `POST` | `/api/llm/rag/query` | Query indexed PDF content |
+| Method | Path                   | Description                  |
+| ------ | ---------------------- | ---------------------------- |
+| `GET`  | `/api/llm/models`      | List available Ollama models |
+| `POST` | `/api/llm/chat`        | Chat with an Ollama model    |
+| `POST` | `/api/llm/rag/process` | Ingest and index a PDF       |
+| `POST` | `/api/llm/rag/query`   | Query indexed PDF content    |
 
 CORS is configured for `http://localhost:8081` by default.
 
@@ -322,9 +322,9 @@ VITE_HOST_API=http://localhost:8000
 VITE_ASSETS_API=http://localhost:8000
 ```
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_HOST_API` | Base URL for all Axios API calls |
+| Variable          | Description                      |
+| ----------------- | -------------------------------- |
+| `VITE_HOST_API`   | Base URL for all Axios API calls |
 | `VITE_ASSETS_API` | Base URL for static/media assets |
 
 Restart the dev server after changing `.env`.
@@ -339,43 +339,43 @@ Open: **http://localhost:8081**
 
 ### 4. Available routes
 
-| Path | Description |
-|------|-------------|
-| `/login` | Sign in with email + password |
-| `/register` | Create a new account |
-| `/dashboard` | Overview landing page (requires auth) |
-| `/dashboard/llm-chat` | Chat with a local Ollama model |
-| `/dashboard/multimodal-rag` | Upload PDFs and query them with RAG |
-| `/playground` | LLM playground with model/preset/temperature controls |
+| Path                        | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| `/login`                    | Sign in with email + password                         |
+| `/register`                 | Create a new account                                  |
+| `/dashboard`                | Overview landing page (requires auth)                 |
+| `/dashboard/llm-chat`       | Chat with a local Ollama model                        |
+| `/dashboard/multimodal-rag` | Upload PDFs and query them with RAG                   |
+| `/playground`               | LLM playground with model/preset/temperature controls |
 
 JWT tokens are stored client-side; all authenticated requests include `Authorization: Bearer <token>`.
 
 ### 5. Frontend scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Dev server with HMR (port 8081) |
-| `npm run build` | Production build to `dist/` |
-| `npm run preview` | Preview the production build |
-| `npm run lint` | Run ESLint |
-| `npm run lint:fix` | ESLint with auto-fix |
-| `npm run fm:fix` | Prettier formatting |
-| `npm run fix:all` | Lint + format in one step |
+| Command             | Description                         |
+| ------------------- | ----------------------------------- |
+| `npm run dev`       | Dev server with HMR (port 8081)     |
+| `npm run build`     | Production build to `dist/`         |
+| `npm run preview`   | Preview the production build        |
+| `npm run lint`      | Run ESLint                          |
+| `npm run lint:fix`  | ESLint with auto-fix                |
+| `npm run fm:fix`    | Prettier formatting                 |
+| `npm run fix:all`   | Lint + format in one step           |
 | `npm run tsc:watch` | TypeScript type-check in watch mode |
 
 ### 6. Key frontend dependencies
 
-| Package | Role |
-|---------|------|
-| `react` 19, `react-dom` | UI framework |
-| `react-router-dom` v7 | Client-side routing with lazy loading |
-| `axios` | HTTP client (configured in `src/utils/axios.ts`) |
-| `react-hook-form` + `zod` | Form state and schema validation |
-| `@radix-ui/*` + `shadcn/ui` | Accessible, unstyled UI primitives |
-| `tailwindcss` 4 | Utility-first styling |
-| `framer-motion` | Animations |
-| `@excalidraw/excalidraw` | Embedded whiteboard / diagram tool |
-| `lucide-react` | Icon library |
+| Package                     | Role                                             |
+| --------------------------- | ------------------------------------------------ |
+| `react` 19, `react-dom`     | UI framework                                     |
+| `react-router-dom` v7       | Client-side routing with lazy loading            |
+| `axios`                     | HTTP client (configured in `src/utils/axios.ts`) |
+| `react-hook-form` + `zod`   | Form state and schema validation                 |
+| `@radix-ui/*` + `shadcn/ui` | Accessible, unstyled UI primitives               |
+| `tailwindcss` 4             | Utility-first styling                            |
+| `framer-motion`             | Animations                                       |
+| `@excalidraw/excalidraw`    | Embedded whiteboard / diagram tool               |
+| `lucide-react`              | Icon library                                     |
 
 ---
 
@@ -392,21 +392,21 @@ docker exec -it app_local_django python manage.py run_rag_eval
 
 **Eval flags**
 
-| Flag | Description |
-|------|-------------|
-| `--local` | Run evaluators without uploading to LangSmith |
-| `--sync-dataset` | Push examples to a LangSmith dataset first |
-| `--dataset-file <path>` | JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
-| `--dataset-name <name>` | LangSmith dataset name (default: `promptly-multimodal-rag`) |
-| `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`) |
-| `--max-concurrency <n>` | Parallel eval runs (default: 1) |
+| Flag                        | Description                                                               |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `--local`                   | Run evaluators without uploading to LangSmith                             |
+| `--sync-dataset`            | Push examples to a LangSmith dataset first                                |
+| `--dataset-file <path>`     | JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
+| `--dataset-name <name>`     | LangSmith dataset name (default: `promptly-multimodal-rag`)               |
+| `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`)                  |
+| `--max-concurrency <n>`     | Parallel eval runs (default: 1)                                           |
 
 **Built-in evaluators** (defined in `backend/app/llm/evals/rag_eval.py`)
 
-| Evaluator | What it checks |
-|-----------|----------------|
-| `has_context` | `vector_rag_tool` was called by the agent and returned real content (not the "no context" fallback) |
-| `answer_not_empty` | Answer is non-empty and does not fall back to "don't have enough context" |
+| Evaluator           | What it checks                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `has_context`       | `vector_rag_tool` was called by the agent and returned real content (not the "no context" fallback)            |
+| `answer_not_empty`  | Answer is non-empty and does not fall back to "don't have enough context"                                      |
 | `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
 
 Customise `backend/app/llm/evals/sample_dataset.json` with reference answers once you know what your indexed PDFs should return.
@@ -432,22 +432,22 @@ Customise `backend/app/llm/evals/sample_dataset.json` with reference answers onc
 
 ### Docker / backend
 
-| Issue | What to try |
-|-------|-------------|
-| Port already in use | Stop other services on 8000, 5432, 11434, 6333, 9200, 9201, or change Compose port mappings |
-| `PostgreSQL is available` never appears | Check `app_local_postgres` logs; verify `.postgres` env file |
-| Ollama chat 502 / "Failed to reach Ollama" | Ensure `app_local_ollama` is running and a model has been pulled |
-| RAG fails on S3/MinIO | Create the `pdf-images` bucket in the MinIO console |
-| RAG OpenAI errors | Set a valid `OPENAI_API_KEY` in `.rag` and restart Django |
-| CORS errors from frontend | `CORS_ALLOWED_ORIGINS` must include `http://localhost:8081` (default in local settings) |
+| Issue                                      | What to try                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Port already in use                        | Stop other services on 8000, 5432, 13000, 6333, 9200, 9201, or change Compose port mappings |
+| `PostgreSQL is available` never appears    | Check `app_local_postgres` logs; verify `.postgres` env file                                |
+| Ollama chat 502 / "Failed to reach Ollama" | Ensure `app_local_ollama` is running and a model has been pulled                            |
+| RAG fails on S3/MinIO                      | Create the `pdf-images` bucket in the MinIO console                                         |
+| RAG OpenAI errors                          | Set a valid `OPENAI_API_KEY` in `.rag` and restart Django                                   |
+| CORS errors from frontend                  | `CORS_ALLOWED_ORIGINS` must include `http://localhost:8081` (default in local settings)     |
 
 ### Frontend
 
-| Issue | What to try |
-|-------|-------------|
-| API calls go to wrong host | Check `VITE_HOST_API` in `.env` and restart `npm run dev` |
-| 401 on dashboard routes | Log in again; JWT may have expired |
-| Blank page after `.env` change | Restart Vite and clear browser storage for the site |
+| Issue                          | What to try                                               |
+| ------------------------------ | --------------------------------------------------------- |
+| API calls go to wrong host     | Check `VITE_HOST_API` in `.env` and restart `npm run dev` |
+| 401 on dashboard routes        | Log in again; JWT may have expired                        |
+| Blank page after `.env` change | Restart Vite and clear browser storage for the site       |
 
 ### Windows notes
 
