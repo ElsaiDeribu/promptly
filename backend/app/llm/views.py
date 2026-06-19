@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def _ollama_base_url() -> str:
     # When running via docker-compose, this resolves to the `ollama` service.
-    return os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+    return os.environ.get("OLLAMA_BASE_URL", "http://ollama:13000").rstrip("/")
 
 
 def _ollama_request(

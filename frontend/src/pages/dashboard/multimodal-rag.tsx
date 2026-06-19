@@ -1,17 +1,82 @@
+import type { Components } from 'react-markdown';
+
+import remarkGfm from 'remark-gfm';
+import { HOST_API } from '@/config-global';
+import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import axios, { endpoints } from '@/utils/axios';
 import { Textarea } from '@/components/ui/textarea';
+import { Separator } from '@/components/ui/separator';
 import LoadingButton from '@/components/ui/loading-button';
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Card, CardTitle, CardFooter, CardHeader, CardContent, CardDescription } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { HOST_API } from '@/config-global';
+import {
+  Card,
+  CardTitle,
+  CardFooter,
+  CardHeader,
+  CardContent,
+  CardDescription,
+} from '@/components/ui/card';
 
 type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   isStreaming?: boolean;
+};
+
+const markdownComponents: Components = {
+  p: ({ children }) => <p className="my-1.5 leading-relaxed">{children}</p>,
+  h1: ({ children }) => <h1 className="mt-3 mb-1.5 text-lg font-bold">{children}</h1>,
+  h2: ({ children }) => <h2 className="mt-3 mb-1.5 text-base font-bold">{children}</h2>,
+  h3: ({ children }) => <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>,
+  ul: ({ children }) => <ul className="my-1.5 ml-4 list-disc space-y-0.5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 ml-4 list-decimal space-y-0.5">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  code: ({ className, children, ...props }) => {
+    const isBlock = className?.includes('language-');
+    if (isBlock) {
+      return (
+        <code
+          className={`block my-2 overflow-x-auto rounded-md bg-black/5 p-3 text-xs dark:bg-white/10 ${className || ''}`}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code className="rounded bg-black/10 px-1 py-0.5 text-xs dark:bg-white/10" {...props}>
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => <pre className="my-2 overflow-x-auto">{children}</pre>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-foreground/30 pl-3 italic opacity-80">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="min-w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-border bg-muted px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline underline-offset-2 hover:opacity-80"
+    >
+      {children}
+    </a>
+  ),
+  hr: () => <hr className="my-3 border-border" />,
 };
 
 function makeId() {
@@ -40,7 +105,7 @@ export default function MultimodalRAG() {
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    
+
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       setError('Please upload a PDF file');
       return;
@@ -62,7 +127,7 @@ export default function MultimodalRAG() {
 
       setUploadSuccess(`Successfully processed: ${res.data.filename || file.name}`);
       setProcessedFiles((prev) => [...prev, res.data.filename || file.name]);
-      
+
       // Clear the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -156,10 +221,7 @@ export default function MultimodalRAG() {
     } catch (e: any) {
       if (e.name === 'AbortError') return;
       const message =
-        (typeof e === 'string' && e) ||
-        e?.error ||
-        e?.message ||
-        'Failed to send message';
+        (typeof e === 'string' && e) || e?.error || e?.message || 'Failed to send message';
       setError(message);
     } finally {
       abortRef.current = null;
@@ -173,8 +235,8 @@ export default function MultimodalRAG() {
   }
 
   return (
-    <div className="p-6">
-      <Card className="max-w-5xl">
+    <div className="flex justify-center">
+      <Card className="max-w-5xl w-full">
         <CardHeader className="gap-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -194,7 +256,7 @@ export default function MultimodalRAG() {
           <Separator />
 
           {/* File Upload Section */}
-          <div className="rounded-lg border bg-muted/30 p-4">
+          <div className="rounded-lg border bg-muted/30 p-2">
             <div className="mb-2 text-sm font-medium">Upload PDF Documents</div>
             <div className="flex items-center gap-2">
               <input
@@ -215,7 +277,7 @@ export default function MultimodalRAG() {
                 {uploading ? 'Processing...' : 'Browse'}
               </LoadingButton>
             </div>
-            
+
             {uploadSuccess && (
               <div className="mt-2 rounded-md border border-green-600/40 bg-green-50 p-2 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-400">
                 {uploadSuccess}
@@ -224,7 +286,9 @@ export default function MultimodalRAG() {
 
             {processedFiles.length > 0 && (
               <div className="mt-3">
-                <div className="mb-1 text-xs font-medium text-muted-foreground">Processed Files:</div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Processed Files:
+                </div>
                 <div className="flex flex-wrap gap-1">
                   {processedFiles.map((file, idx) => (
                     <span
@@ -252,7 +316,9 @@ export default function MultimodalRAG() {
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 <div className="text-center">
                   <p className="mb-2">Upload PDFs and ask questions about them.</p>
-                  <p className="text-xs">The system will search through text, tables, and images to answer.</p>
+                  <p className="text-xs">
+                    The system will search through text, tables, and images to answer.
+                  </p>
                 </div>
               </div>
             ) : (
@@ -269,8 +335,17 @@ export default function MultimodalRAG() {
                       <div className="mb-1 text-[11px] opacity-80">
                         {m.role === 'user' ? 'You' : 'Assistant'}
                       </div>
-                      <div className="whitespace-pre-wrap break-words">
-                        {m.content}
+                      <div className="break-words">
+                        {m.role === 'assistant' ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={markdownComponents}
+                          >
+                            {m.content}
+                          </ReactMarkdown>
+                        ) : (
+                          <span className="whitespace-pre-wrap">{m.content}</span>
+                        )}
                         {m.isStreaming && !m.content && (
                           <span className="inline-flex items-center gap-1">
                             <span className="h-2 w-2 animate-pulse rounded-full bg-foreground/60" />
