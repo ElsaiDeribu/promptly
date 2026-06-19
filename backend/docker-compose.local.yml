@@ -61,7 +61,7 @@ services:
     image: ollama/ollama:latest
     container_name: app_local_ollama
     ports:
-      - "11434:11434"
+      - "13000:13000"
     volumes:
       - app_local_ollama_data:/root/.ollama
     restart: unless-stopped
