@@ -10,6 +10,7 @@ from urllib.request import urlopen
 from django.http import StreamingHttpResponse
 
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -66,6 +67,8 @@ class OllamaChatView(APIView):
       - options: object (optional; forwarded to Ollama)
     """
 
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         model = request.data.get("model") or os.environ.get("OLLAMA_MODEL") or "llama3"
         messages = request.data.get("messages")
@@ -115,6 +118,8 @@ class OllamaModelsView(APIView):
     List locally available models from Ollama (`/api/tags`).
     """
 
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         url = f"{_ollama_base_url()}/api/tags"
         req = Request(
@@ -147,6 +152,8 @@ class ProcessPDFView(APIView):
       - message: string
       - filename: string (name of processed file)
     """
+
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = ProcessPDFSerializer(data=request.data)
@@ -194,7 +201,7 @@ class ProcessPDFView(APIView):
                     pass
 
             return Response(
-                {"error": "Failed to process PDF", "details": str(e)},
+                {"error": "Failed to process PDF"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -243,6 +250,8 @@ class RAGQueryStreamView(APIView):
       - ``{"done": true}``   – stream finished
       - ``{"error": "..."}`` – an error occurred
     """
+
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = RAGQuerySerializer(data=request.data)

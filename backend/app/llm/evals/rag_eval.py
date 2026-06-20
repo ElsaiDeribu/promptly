@@ -16,6 +16,7 @@ from langsmith import Client
 from langsmith import evaluate
 from langsmith import traceable
 from langsmith.schemas import Example
+from langsmith.utils import LangSmithNotFoundError
 
 from app.llm.agents.rag_agent import rag_agent
 
@@ -117,7 +118,7 @@ def sync_dataset(
 ) -> str:
     try:
         dataset = client.read_dataset(dataset_name=dataset_name)
-    except Exception:
+    except LangSmithNotFoundError:
         dataset = client.create_dataset(
             dataset_name=dataset_name,
             description="Promptly multimodal RAG evaluation examples",
