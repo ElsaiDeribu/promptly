@@ -3,7 +3,6 @@ from base64 import b64decode
 from typing import TypedDict
 from uuid import uuid4
 
-from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,7 +11,7 @@ from langgraph.graph import END
 from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-load_dotenv()
+
 from ....llm.utils.pdf_processor import get_images_base64
 from ....llm.utils.pdf_processor import get_tables
 from ....llm.utils.pdf_processor import process_pdf

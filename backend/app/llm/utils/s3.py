@@ -3,10 +3,6 @@ import os
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 
 # ------------------------------------------------------------
