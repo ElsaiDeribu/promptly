@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import tempfile
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import Request
@@ -21,10 +20,7 @@ from .agents.rag_agent import rag_agent
 from .models import Document
 from .serializers import CreateUploadURLSerializer
 from .serializers import DocumentSerializer
-from .serializers import ProcessPDFSerializer
 from .serializers import RAGQuerySerializer
-from .services.multimodal_rag.rag_pipeline import create_processing_graph
-from .services.multimodal_rag.rag_pipeline import create_processing_state
 from .tasks import process_document
 from .utils.s3 import S3Wrapper
 
@@ -139,75 +135,6 @@ class OllamaModelsView(APIView):
             return Response(
                 {"error": "Failed to fetch Ollama models", "details": str(e)},
                 status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-
-class ProcessPDFView(APIView):
-    """
-    Process a PDF file for multimodal RAG.
-
-    This endpoint accepts a PDF file, processes it to extract text, tables, and images,
-    generates summaries, and stores them in the vector database for later retrieval.
-
-    Request:
-      - file: PDF file (multipart/form-data)
-
-    Response:
-      - success: boolean
-      - message: string
-      - filename: string (name of processed file)
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        serializer = ProcessPDFSerializer(data=request.data)
-
-        if not serializer.is_valid():
-            return Response(
-                {"error": "Invalid request", "details": serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        uploaded_file = serializer.validated_data["file"]
-
-        # Save uploaded file to a temporary location
-        try:
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".pdf", prefix="rag_",
-            ) as tmp_file:
-                for chunk in uploaded_file.chunks():
-                    tmp_file.write(chunk)
-                temp_path = tmp_file.name
-
-            # Process the PDF using the RAG pipeline
-            processing_graph = create_processing_graph()
-            initial_state = create_processing_state(temp_path)
-            processing_graph.invoke(initial_state)
-
-            # Clean up temporary file
-            os.unlink(temp_path)
-
-            return Response(
-                {
-                    "success": True,
-                    "message": "PDF processed successfully",
-                    "filename": uploaded_file.name,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as e:
-            # Clean up temporary file if it exists
-            if "temp_path" in locals():
-                try:
-                    os.unlink(temp_path)
-                except Exception:
-                    pass
-
-            return Response(
-                {"error": "Failed to process PDF"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 

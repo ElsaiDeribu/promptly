@@ -3,16 +3,6 @@ from rest_framework import serializers
 from .models import Document
 
 
-class ProcessPDFSerializer(serializers.Serializer):
-    """
-    Schema for PDF Processing
-    """
-
-    file = serializers.FileField(
-        help_text="PDF file to process for multimodal RAG",
-    )
-
-
 class RAGQuerySerializer(serializers.Serializer):
     """
     Schema for RAG Query

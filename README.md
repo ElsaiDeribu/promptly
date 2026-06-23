@@ -267,12 +267,14 @@ Django admin: http://localhost:8000/admin/
 
 **LLM / RAG**
 
-| Method | Path                   | Description                  |
-| ------ | ---------------------- | ---------------------------- |
-| `GET`  | `/api/llm/models`      | List available Ollama models |
-| `POST` | `/api/llm/chat`        | Chat with an Ollama model    |
-| `POST` | `/api/llm/rag/process` | Ingest and index a PDF       |
-| `POST` | `/api/llm/rag/query`   | Query indexed PDF content    |
+| Method | Path                                              | Description                              |
+| ------ | ------------------------------------------------- | ---------------------------------------- |
+| `GET`  | `/api/llm/models`                                 | List available Ollama models             |
+| `POST` | `/api/llm/chat`                                    | Chat with an Ollama model                |
+| `POST` | `/api/llm/documents/create-upload-url`            | Get a presigned URL to upload a PDF to S3 |
+| `POST` | `/api/llm/documents/{id}/complete-upload`         | Confirm upload and queue async processing |
+| `GET`  | `/api/llm/documents/{id}`                         | Poll a document's processing status      |
+| `POST` | `/api/llm/rag/query/stream`                       | Query indexed PDF content                |
 
 CORS is configured for `http://localhost:8081` by default.
 
@@ -385,7 +387,7 @@ JWT tokens are stored client-side; all authenticated requests include `Authoriza
 
 1. Create an API key at [smith.langchain.com](https://smith.langchain.com) and set `LANGSMITH_API_KEY` in `backend/.envs/.local/.rag`.
 2. Restart Django: `docker compose -f docker-compose.local.yml restart django`.
-3. Process a PDF via `POST /api/llm/rag/process`, then query via `POST /api/llm/rag/query` — the ReAct agent's tool calls and LLM steps appear as nested traces under `LANGSMITH_PROJECT`.
+3. Upload and process a PDF via the document upload flow (`POST /api/llm/documents/create-upload-url` → S3 PUT → `POST /api/llm/documents/{id}/complete-upload`), then query via `POST /api/llm/rag/query/stream` — the ReAct agent's tool calls and LLM steps appear as nested traces under `LANGSMITH_PROJECT`.
 4. Run offline evals:
 
 ```bash
