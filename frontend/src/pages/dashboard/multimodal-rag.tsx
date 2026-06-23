@@ -115,18 +115,34 @@ export default function MultimodalRAG() {
     setUploadSuccess('');
     setUploading(true);
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    const contentType = file.type || 'application/pdf';
 
-      const res = await axios.post(endpoints.llm.ragProcess, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+    try {
+      // STEP 1 — ask the backend for a pre-signed S3 URL (no file sent yet).
+      const createRes = await axios.post(endpoints.llm.createUploadUrl, {
+        filename: file.name,
+        content_type: contentType,
       });
 
-      setUploadSuccess(`Successfully processed: ${res.data.filename || file.name}`);
-      setProcessedFiles((prev) => [...prev, res.data.filename || file.name]);
+      const { document_id: documentId, upload_url: uploadUrl } = createRes.data;
+
+      // STEP 2 — upload the file straight to S3. Django is NOT involved here,
+      // and no auth header is sent (the signature authorizes the request).
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file,
+      });
+
+      if (!putRes.ok) {
+        throw new Error(`Upload to storage failed (HTTP ${putRes.status})`);
+      }
+
+      // STEP 3 — tell the backend the upload is done; processing runs async.
+      await axios.post(endpoints.llm.completeUpload(documentId));
+
+      setUploadSuccess(`Uploaded: ${file.name}. Processing in background...`);
+      setProcessedFiles((prev) => [...prev, file.name]);
 
       // Clear the file input
       if (fileInputRef.current) {
@@ -138,7 +154,7 @@ export default function MultimodalRAG() {
         e?.error ||
         e?.details ||
         e?.message ||
-        'Failed to upload and process PDF';
+        'Failed to upload PDF';
       setError(message);
     } finally {
       setUploading(false);

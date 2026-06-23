@@ -18,10 +18,15 @@ from langchain_core.messages import AIMessageChunk
 from langchain_core.messages import HumanMessage
 
 from .agents.rag_agent import rag_agent
+from .models import Document
+from .serializers import CreateUploadURLSerializer
+from .serializers import DocumentSerializer
 from .serializers import ProcessPDFSerializer
 from .serializers import RAGQuerySerializer
 from .services.multimodal_rag.rag_pipeline import create_processing_graph
 from .services.multimodal_rag.rag_pipeline import create_processing_state
+from .tasks import process_document
+from .utils.s3 import S3Wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -271,3 +276,131 @@ class RAGQueryStreamView(APIView):
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+# ============================================================
+# Issues a presigned S3 URL and creates a Document.
+# ============================================================
+class CreateUploadURLView(APIView):
+    """Endpoint to generate a presigned S3 upload URL and create a Document record.
+
+    Returns a short-lived upload URL and S3 fields that the client can use for direct upload. 
+    Creates a Document record in the database for the document.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CreateUploadURLSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filename = serializer.validated_data["filename"]
+        content_type = serializer.validated_data["content_type"]
+
+        document = Document.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            original_filename=filename,
+            content_type=content_type,
+        )
+        document.s3_key = f"uploads/{document.upload_token}/{filename}"
+        document.save(update_fields=["s3_key", "updated_at"])
+
+        s3 = S3Wrapper()
+        s3.ensure_bucket()
+        upload_url = s3.generate_presigned_upload_url(
+            object_name=document.s3_key,
+            content_type=content_type,
+        )
+
+        if not upload_url:
+            document.status = Document.Status.FAILED
+            document.error_message = "Could not generate upload URL"
+            document.save(update_fields=["status", "error_message", "updated_at"])
+            return Response(
+                {"error": "Failed to generate upload URL"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "document_id": str(document.id),
+                "upload_url": upload_url,
+                "method": "PUT",
+                "content_type": content_type,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CompleteUploadView(APIView):
+    """
+    Confirm upload and start async processing.
+
+    Request body:
+      - none (document_id is in the URL path)
+
+    Returns:
+      - document_id: string
+      - status: string
+      - message: string
+
+    Kicks off background parsing and processing of the uploaded file.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int):
+        try:
+            document = Document.objects.get(pk=document_id)
+        except Document.DoesNotExist:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        s3 = S3Wrapper()
+        if not s3.object_exists(document.s3_key):
+            return Response(
+                {"error": "File not found in storage. Upload may not be complete."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        document.status = Document.Status.UPLOADED
+        document.error_message = ""
+        document.save(update_fields=["status", "error_message", "updated_at"])
+
+        # Async, non-blocking: parsing happens after this request returns.
+        process_document.delay(document.id)
+
+        return Response(
+            {
+                "document_id": str(document.id),
+                "status": document.status,
+                "message": "Upload complete. Processing started.",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class DocumentDetailView(APIView):
+    """Poll the processing status of a document."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id: int):
+        try:
+            document = Document.objects.get(pk=document_id)
+        except Document.DoesNotExist:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            DocumentSerializer(document).data,
+            status=status.HTTP_200_OK,
+        )

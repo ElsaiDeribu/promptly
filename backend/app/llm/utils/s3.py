@@ -34,7 +34,16 @@ class S3Wrapper:
         self.access_key = access_key or os.getenv("AWS_ACCESS_KEY_ID")
         self.secret_key = secret_key or os.getenv("AWS_SECRET_ACCESS_KEY")
         self.region = region or os.getenv("AWS_REGION", "us-east-1")
+        # Use a browser-accessible S3/MinIO endpoint for presigned URLs.
+        # This cannot be an internal address like 'minio:9000' because browsers can't reach Docker-internal hosts.
+        self.public_endpoint_url = os.getenv(
+            "S3_PUBLIC_ENDPOINT_URL", self.endpoint_url,
+        )
 
+        config = Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        )
         # Initialize S3 client
         self.client = boto3.client(
             "s3",
@@ -42,11 +51,22 @@ class S3Wrapper:
             aws_access_key_id=self.access_key,
             aws_secret_access_key=self.secret_key,
             region_name=self.region,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
+            config=config,
         )
+
+        # Separate client signed against the public endpoint, used only to
+        # generate presigned URLs that the browser will call.
+        if self.public_endpoint_url and self.public_endpoint_url != self.endpoint_url:
+            self.presign_client = boto3.client(
+                "s3",
+                endpoint_url=self.public_endpoint_url,
+                aws_access_key_id=self.access_key,
+                aws_secret_access_key=self.secret_key,
+                region_name=self.region,
+                config=config,
+            )
+        else:
+            self.presign_client = self.client
 
     def upload_file(
         self, file_path: str, object_name: str | None = None, bucket: str | None = None,
@@ -132,6 +152,75 @@ class S3Wrapper:
             return response["Body"].read()
         except ClientError as e:
             print(f"Error downloading file: {e}")
+            return None
+
+    def ensure_bucket(self, bucket: str | None = None) -> bool:
+        """Create the bucket if it does not already exist.
+
+        Returns:
+            True if the bucket exists (or was created), False on error.
+        """
+        if bucket is None:
+            bucket = self.bucket_name
+
+        try:
+            self.client.head_bucket(Bucket=bucket)
+            return True
+        except ClientError:
+            try:
+                self.client.create_bucket(Bucket=bucket)
+                return True
+            except ClientError as e:
+                print(f"Error creating bucket: {e}")
+                return False
+
+    def object_exists(self, object_name: str, bucket: str | None = None) -> bool:
+        """Return True if the object exists in the bucket."""
+        if bucket is None:
+            bucket = self.bucket_name
+
+        try:
+            self.client.head_object(Bucket=bucket, Key=object_name)
+            return True
+        except ClientError:
+            return False
+
+    def generate_presigned_upload_url(
+        self,
+        object_name: str,
+        expiration: int = 3600,
+        content_type: str | None = None,
+        bucket: str | None = None,
+    ) -> str | None:
+        """Generate a presigned URL the browser can PUT a file to directly.
+
+        The returned URL is signed against the public endpoint so it is
+        reachable from the browser (not the internal docker hostname).
+
+        Args:
+            object_name: S3 object key the file will be stored under
+            expiration: Time in seconds the URL stays valid (default: 1 hour)
+            content_type: Content type the client must send with the PUT
+            bucket: Bucket name. If not specified, uses default bucket
+
+        Returns:
+            Presigned PUT URL as string, or None if error
+        """
+        if bucket is None:
+            bucket = self.bucket_name
+
+        params = {"Bucket": bucket, "Key": object_name}
+        if content_type:
+            params["ContentType"] = content_type
+
+        try:
+            return self.presign_client.generate_presigned_url(
+                "put_object",
+                Params=params,
+                ExpiresIn=expiration,
+            )
+        except ClientError as e:
+            print(f"Error generating presigned upload URL: {e}")
             return None
 
     def generate_presigned_url(

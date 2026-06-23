@@ -37,5 +37,8 @@ export const endpoints = {
     models: '/api/llm/models',
     ragProcess: '/api/llm/rag/process',
     ragQueryStream: '/api/llm/rag/query/stream',
+    createUploadUrl: '/api/llm/documents/create-upload-url',
+    completeUpload: (id: string) => `/api/llm/documents/${id}/complete-upload`,
+    documentDetail: (id: string) => `/api/llm/documents/${id}`,
   },
 };
