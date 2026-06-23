@@ -1,5 +1,5 @@
 import logging
-from base64 import b64encode
+import json
 
 from langchain_core.tools import tool
 
@@ -11,19 +11,28 @@ logger = logging.getLogger(__name__)
 _NO_CONTEXT_MSG = "No relevant context found in the knowledge base."
 
 
-def _parse_docs(docs, object_store: S3Wrapper) -> dict[str, list]:
-    """Split retrieved docs into text chunks and base64 image data URLs."""
-    images = []
-    texts = []
+def _format_chunk(doc, object_store: S3Wrapper) -> str | None:
+    """Build a context chunk, swapping image_key for a presigned URL when present."""
+    image_key = doc.metadata.get("image_key")
+
+    if image_key:
+        url = object_store.generate_presigned_url(object_name=image_key)
+        if url:
+            doc.metadata["image_url"] = url
+            doc.metadata.pop("image_key")
+            doc.pop("_collection_name")
+
+    return doc.model_dump()
+
+
+def _parse_docs(docs, object_store: S3Wrapper) -> list[str]:
+    """Turn retrieved docs into context chunks with presigned image URLs inlined."""
+    chunks: list[dict] = []
     for doc in docs:
-        if "image_key" in doc.metadata:
-            img_bytes = object_store.get_file(object_name=doc.metadata["image_key"])
-            if img_bytes:
-                b64 = b64encode(img_bytes).decode("utf-8")
-                images.append(f"data:image/jpeg;base64,{b64}")
-        else:
-            texts.append(doc.page_content)
-    return {"images": images, "texts": texts}
+        chunk = _format_chunk(doc=doc, object_store=object_store)
+        if chunk:
+            chunks.append(chunk)
+    return chunks
 
 
 @tool
@@ -45,17 +54,12 @@ def vector_rag_tool(question: str) -> str:
         object_store = S3Wrapper()
 
         docs = vector_db.similarity_search(question)
-        parsed_docs = _parse_docs(docs=docs, object_store=object_store)
+        chunks = _parse_docs(docs=docs, object_store=object_store)
 
-        if not parsed_docs["texts"] and not parsed_docs["images"]:
+        if not chunks:
             return _NO_CONTEXT_MSG
 
-        parts = parsed_docs["texts"]
-        # TODO: Add image support
-        # if parsed_docs["images"]:
-        #     parts = parts + [f"[image:{url}]" for url in parsed_docs["images"]]
-
-        return "\n\n".join(parts)
+        return json.dumps(chunks)
 
     except Exception as e:
         logger.error(f"Error in vector_rag_tool: {e!s}")

@@ -241,7 +241,7 @@ class S3Wrapper:
             bucket = self.bucket_name
 
         try:
-            url = self.client.generate_presigned_url(
+            url = self.presign_client.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": bucket, "Key": object_name},
                 ExpiresIn=expiration,
