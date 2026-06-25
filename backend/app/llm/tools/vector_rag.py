@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 
 from langchain_core.tools import tool
 
@@ -14,15 +14,17 @@ _NO_CONTEXT_MSG = "No relevant context found in the knowledge base."
 def _format_chunk(doc, object_store: S3Wrapper) -> str | None:
     """Build a context chunk, swapping image_key for a presigned URL when present."""
     image_key = doc.metadata.get("image_key")
-
+    chunk = doc.model_dump()
     if image_key:
         url = object_store.generate_presigned_url(object_name=image_key)
         if url:
-            doc.metadata["image_url"] = url
-            doc.metadata.pop("image_key")
-            doc.pop("_collection_name")
+            chunk.pop("id")
+            chunk["metadata"]["image_url"] = url
+            chunk["metadata"].pop("image_key")
+            chunk["metadata"].pop("_collection_name", None)
+            chunk["metadata"].pop("_id", None)
 
-    return doc.model_dump()
+    return chunk
 
 
 def _parse_docs(docs, object_store: S3Wrapper) -> list[str]:
