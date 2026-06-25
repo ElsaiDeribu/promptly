@@ -14,9 +14,16 @@ import type {
 
 const DEFAULT_CONTENT_TYPE = 'application/pdf';
 
-// How often to ask the backend for the processing status, and for how long.
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_ATTEMPTS = 90; // ~3 minutes before we give up polling
+// Back off over time — no need to hammer every 30s for an hour
+const POLL_INTERVALS_MS = [30_000, 60_000, 120_000];
+const MAX_POLL_INTERVAL_MS = 120_000;
+const MAX_POLL_DURATION_MS = 60 * 60 * 1000; // ~1 hour before we give up polling
+
+function getPollIntervalMs(scheduleIndex: number): number {
+  return scheduleIndex < POLL_INTERVALS_MS.length
+    ? POLL_INTERVALS_MS[scheduleIndex]
+    : MAX_POLL_INTERVAL_MS;
+}
 
 type UseDocumentUploadReturn = {
   uploading: boolean;
@@ -63,15 +70,25 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
 
   /**
    * Polls the document detail endpoint until the backend reports a terminal
-   * status (`processed` or `failed`), or we exhaust MAX_POLL_ATTEMPTS.
+   * status (`processed` or `failed`), or MAX_POLL_DURATION_MS elapses.
    */
   const startPolling = useCallback(
     (documentId: string) => {
-      let attempts = 0;
+      const startedAt = Date.now();
+      let scheduleIndex = 0;
+
+      const scheduleNext = () => {
+        if (Date.now() - startedAt >= MAX_POLL_DURATION_MS) {
+          delete pollTimers.current[documentId];
+          return;
+        }
+
+        const delay = getPollIntervalMs(scheduleIndex);
+        scheduleIndex += 1;
+        pollTimers.current[documentId] = setTimeout(tick, delay);
+      };
 
       const tick = async () => {
-        attempts += 1;
-
         try {
           const { data } = await axios.get<DocumentDetailResponse>(
             endpoints.llm.documentDetail(documentId)
@@ -88,18 +105,13 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
           }
         } catch {
           // Transient error (network blip, etc.) - keep polling until we run
-          // out of attempts rather than failing the whole upload.
+          // out of time rather than failing the whole upload.
         }
 
-        if (attempts >= MAX_POLL_ATTEMPTS) {
-          delete pollTimers.current[documentId];
-          return;
-        }
-
-        pollTimers.current[documentId] = setTimeout(tick, POLL_INTERVAL_MS);
+        scheduleNext();
       };
 
-      pollTimers.current[documentId] = setTimeout(tick, POLL_INTERVAL_MS);
+      scheduleNext();
     },
     [updateDocument]
   );
