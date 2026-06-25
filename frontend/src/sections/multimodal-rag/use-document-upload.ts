@@ -6,8 +6,8 @@ import { resolveErrorMessage } from './utils';
 import type {
   TrackedDocument,
   DocumentDetailResponse,
-  CreateUploadUrlResponse,
   CompleteUploadResponse,
+  CreateUploadUrlResponse,
 } from './types';
 
 // ----------------------------------------------------------------------
@@ -23,9 +23,11 @@ type UseDocumentUploadReturn = {
   error: string;
   successMessage: string;
   documents: TrackedDocument[];
+  selectedFile: File | null;
   fileInputRef: React.RefObject<HTMLInputElement>;
   openFilePicker: () => void;
-  uploadFile: (file: File) => Promise<void>;
+  selectFile: (file: File | null) => void;
+  uploadSelectedFile: () => Promise<void>;
   resetFeedback: () => void;
 };
 
@@ -40,6 +42,7 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [documents, setDocuments] = useState<TrackedDocument[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,75 +107,92 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
   const resetFeedback = useCallback(() => {
     setError('');
     setSuccessMessage('');
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   }, []);
 
   const openFilePicker = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 
-  const uploadFile = useCallback(
-    async (file: File) => {
-      if (!file.name.toLowerCase().endsWith('.pdf')) {
-        setError('Please upload a PDF file');
-        return;
+  const selectFile = useCallback((file: File | null) => {
+    setError('');
+    setSuccessMessage('');
+    setSelectedFile(file);
+  }, []);
+
+  const uploadSelectedFile = useCallback(async () => {
+    if (!selectedFile) {
+      setError('Please select a PDF file first');
+      return;
+    }
+
+    const file = selectedFile;
+
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please upload a PDF file');
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    setUploading(true);
+
+    const contentType = file.type || DEFAULT_CONTENT_TYPE;
+
+    try {
+      const { data } = await axios.post<CreateUploadUrlResponse>(endpoints.llm.createUploadUrl, {
+        filename: file.name,
+        content_type: contentType,
+      });
+
+      const { document_id: documentId, upload_url: uploadUrl } = data;
+
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file,
+      });
+
+      if (!putRes.ok) {
+        throw new Error(`Upload to storage failed (HTTP ${putRes.status})`);
       }
 
-      setError('');
-      setSuccessMessage('');
-      setUploading(true);
+      const { data: completeData } = await axios.post<CompleteUploadResponse>(
+        endpoints.llm.completeUpload(documentId)
+      );
 
-      const contentType = file.type || DEFAULT_CONTENT_TYPE;
+      setSuccessMessage(`Uploaded: ${file.name}. Track its status below.`);
+      setDocuments((prev) => [
+        ...prev,
+        { id: documentId, filename: file.name, status: completeData?.status || 'uploaded' },
+      ]);
 
-      try {
-        const { data } = await axios.post<CreateUploadUrlResponse>(endpoints.llm.createUploadUrl, {
-          filename: file.name,
-          content_type: contentType,
-        });
+      startPolling(documentId);
+      setSelectedFile(null);
 
-        const { document_id: documentId, upload_url: uploadUrl } = data;
-
-        const putRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': contentType },
-          body: file,
-        });
-
-        if (!putRes.ok) {
-          throw new Error(`Upload to storage failed (HTTP ${putRes.status})`);
-        }
-
-        const { data: completeData } = await axios.post<CompleteUploadResponse>(
-          endpoints.llm.completeUpload(documentId)
-        );
-
-        setSuccessMessage(`Uploaded: ${file.name}. Track its status below.`);
-        setDocuments((prev) => [
-          ...prev,
-          { id: documentId, filename: file.name, status: completeData?.status || 'uploaded' },
-        ]);
-
-        startPolling(documentId);
-
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-      } catch (e) {
-        setError(resolveErrorMessage(e, 'Failed to upload PDF'));
-      } finally {
-        setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
-    },
-    [startPolling]
-  );
+    } catch (e) {
+      setError(resolveErrorMessage(e, 'Failed to upload PDF'));
+    } finally {
+      setUploading(false);
+    }
+  }, [selectedFile, startPolling]);
 
   return {
     uploading,
     error,
     successMessage,
     documents,
+    selectedFile,
     fileInputRef,
     openFilePicker,
-    uploadFile,
+    selectFile,
+    uploadSelectedFile,
     resetFeedback,
   };
 }

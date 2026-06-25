@@ -26,12 +26,15 @@ export default function MultimodalRagView() {
 
   const error = chat.error || upload.error;
 
-  async function handleSelectFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  function handleSelectFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
     chat.setError('');
-    await upload.uploadFile(file);
+    upload.selectFile(file);
+  }
+
+  async function handleUploadAndProcess() {
+    chat.setError('');
+    await upload.uploadSelectedFile();
   }
 
   async function handleSend() {
@@ -70,11 +73,13 @@ export default function MultimodalRagView() {
 
           <DocumentUploader
             uploading={upload.uploading}
+            hasSelectedFile={Boolean(upload.selectedFile)}
             successMessage={upload.successMessage}
             documents={upload.documents}
             fileInputRef={upload.fileInputRef}
             onSelectFile={handleSelectFile}
             onBrowse={upload.openFilePicker}
+            onUploadAndProcess={handleUploadAndProcess}
           />
         </CardHeader>
 

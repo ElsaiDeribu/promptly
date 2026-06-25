@@ -27,20 +27,24 @@ function isInProgress(status: DocumentStatus): boolean {
 
 type DocumentUploaderProps = {
   uploading: boolean;
+  hasSelectedFile: boolean;
   successMessage: string;
   documents: TrackedDocument[];
   fileInputRef: React.RefObject<HTMLInputElement>;
   onSelectFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onBrowse: () => void;
+  onUploadAndProcess: () => void;
 };
 
 export default function DocumentUploader({
   uploading,
+  hasSelectedFile,
   successMessage,
   documents,
   fileInputRef,
   onSelectFile,
   onBrowse,
+  onUploadAndProcess,
 }: DocumentUploaderProps) {
   return (
     <div className="rounded-lg border bg-muted/30 p-2">
@@ -57,12 +61,21 @@ export default function DocumentUploader({
         />
         <LoadingButton
           type="button"
-          loading={uploading}
+          disabled={uploading}
           onClick={onBrowse}
           variant="secondary"
           className="shrink-0"
         >
-          {uploading ? 'Uploading...' : 'Browse'}
+          Browse
+        </LoadingButton>
+        <LoadingButton
+          type="button"
+          loading={uploading}
+          disabled={!hasSelectedFile || uploading}
+          onClick={onUploadAndProcess}
+          className="shrink-0"
+        >
+          {uploading ? 'Uploading...' : 'Upload and Process'}
         </LoadingButton>
       </div>
 
