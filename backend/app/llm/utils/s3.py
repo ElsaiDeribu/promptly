@@ -68,34 +68,6 @@ class S3Wrapper:
         else:
             self.presign_client = self.client
 
-    def upload_file(
-        self, file_path: str, object_name: str | None = None, bucket: str | None = None,
-    ) -> bool:
-        """
-        Upload a file to S3 bucket.
-
-        Args:
-            file_path: Path to the file to upload
-            object_name: S3 object name. If not specified, file_path basename is used
-            bucket: Bucket name. If not specified, uses default bucket
-
-        Returns:
-            True if file was uploaded successfully, False otherwise
-        """
-        if object_name is None:
-            object_name = os.path.basename(file_path)
-
-        if bucket is None:
-            bucket = self.bucket_name
-
-        try:
-            self.client.upload_file(file_path, bucket, object_name)
-            print(f"Successfully uploaded {file_path} to {bucket}/{object_name}")
-            return True
-        except ClientError as e:
-            print(f"Error uploading file: {e}")
-            return False
-
     def put_file(
         self,
         data: bytes,
@@ -129,9 +101,6 @@ class S3Wrapper:
         except ClientError as e:
             print(f"Error putting file: {e}")
             return False
-
-
-
 
     def get_file(self, object_name: str, bucket: str | None = None) -> bytes | None:
         """
