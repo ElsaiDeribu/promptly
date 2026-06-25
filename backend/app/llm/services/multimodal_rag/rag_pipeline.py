@@ -251,5 +251,7 @@ def create_processing_graph() -> CompiledStateGraph:
     workflow.add_edge("summarize", "load_summaries")
     workflow.add_edge("load_summaries", END)
 
-    return workflow.compile()
+    return workflow.compile(name="rag_pdf_processing").with_config(
+        {"run_name": "rag_pdf_processing"},
+    )
 
