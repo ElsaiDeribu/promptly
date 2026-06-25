@@ -61,15 +61,8 @@ def create_processing_state(file_path: str) -> ProcessingState:
 # PDF Processing Workflow
 # ============================================================
 def pre_process_pdf(state: ProcessingState) -> ProcessingState:
-    """Pre-process the PDF file"""
+    """Parse the PDF file (already stored in S3 via presigned upload)."""
     try:
-        # Upload PDF to S3
-        state["object_store"].upload_file(
-            file_path=state["file_path"],
-            object_name=f"pdfs/{uuid4()!s}.pdf",
-        )
-
-        # Process PDF
         state["chunks"] = process_pdf(state["file_path"])
         state["summaries"] = {"text": [], "tables": [], "images": []}
         if "vector_db" not in state:
