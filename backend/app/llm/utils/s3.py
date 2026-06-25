@@ -5,6 +5,10 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 
+def _is_404(error: ClientError) -> bool:
+    return error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
+
+
 # ------------------------------------------------------------
 # S3 Storage Wrapper
 # ------------------------------------------------------------
@@ -120,8 +124,9 @@ class S3Wrapper:
             response = self.client.get_object(Bucket=bucket, Key=object_name)
             return response["Body"].read()
         except ClientError as e:
-            print(f"Error downloading file: {e}")
-            return None
+            if _is_404(e):
+                return None
+            raise
 
     def ensure_bucket(self, bucket: str | None = None) -> bool:
         """Create the bucket if it does not already exist.
@@ -135,13 +140,17 @@ class S3Wrapper:
         try:
             self.client.head_bucket(Bucket=bucket)
             return True
-        except ClientError:
-            try:
-                self.client.create_bucket(Bucket=bucket)
-                return True
-            except ClientError as e:
-                print(f"Error creating bucket: {e}")
+        except ClientError as e:
+            if not _is_404(e):
+                print(f"Error checking bucket: {e}")
                 return False
+
+        try:
+            self.client.create_bucket(Bucket=bucket)
+            return True
+        except ClientError as e:
+            print(f"Error creating bucket: {e}")
+            return False
 
     def object_exists(self, object_name: str, bucket: str | None = None) -> bool:
         """Return True if the object exists in the bucket."""
@@ -151,8 +160,10 @@ class S3Wrapper:
         try:
             self.client.head_object(Bucket=bucket, Key=object_name)
             return True
-        except ClientError:
-            return False
+        except ClientError as e:
+            if _is_404(e):
+                return False
+            raise
 
     def generate_presigned_upload_url(
         self,
