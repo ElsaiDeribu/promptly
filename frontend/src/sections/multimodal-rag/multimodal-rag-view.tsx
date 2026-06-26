@@ -11,9 +11,11 @@ import {
 } from '@/components/ui/card';
 
 import ChatWindow from './chat-window';
+import MemoryPanel from './memory-panel';
 import ChatComposer from './chat-composer';
 import { useRagChat } from './use-rag-chat';
 import DocumentUploader from './document-uploader';
+import { useUserMemories } from './use-user-memories';
 import { useDocumentUpload } from './use-document-upload';
 
 // ----------------------------------------------------------------------
@@ -21,10 +23,11 @@ import { useDocumentUpload } from './use-document-upload';
 export default function MultimodalRagView() {
   const [draft, setDraft] = useState('');
 
-  const chat = useRagChat();
+  const memories = useUserMemories();
+  const chat = useRagChat({ onComplete: memories.refresh });
   const upload = useDocumentUpload();
 
-  const error = chat.error || upload.error;
+  const error = chat.error || upload.error || memories.error;
 
   function handleSelectFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -58,7 +61,8 @@ export default function MultimodalRagView() {
             <div>
               <CardTitle>Multimodal RAG</CardTitle>
               <CardDescription>
-                Upload PDFs with text, tables, and images. Ask questions about them.
+                Upload PDFs with text, tables, and images. Ask questions about them. The
+                assistant remembers your preferences across chats.
               </CardDescription>
             </div>
 
@@ -81,6 +85,15 @@ export default function MultimodalRagView() {
             onBrowse={upload.openFilePicker}
             onUploadAndProcess={handleUploadAndProcess}
           />
+
+          <div className="mt-4">
+            <MemoryPanel
+              memories={memories.memories}
+              loading={memories.loading}
+              onDelete={memories.deleteMemory}
+              onRefresh={memories.refresh}
+            />
+          </div>
         </CardHeader>
 
         <CardContent>

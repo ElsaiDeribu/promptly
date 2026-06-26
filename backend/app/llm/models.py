@@ -45,3 +45,25 @@ class Document(models.Model):
 
     def __str__(self) -> str:
         return f"{self.original_filename} ({self.status})"
+
+
+class UserMemory(models.Model):
+    """Long-term memory scoped to a user, persisted across chat sessions."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="memories",
+    )
+    memory_id = models.UUIDField(default=uuid4, editable=False, unique=True)
+    content = models.TextField()
+    context = models.TextField(blank=True, default="")
+    embedding = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.content[:60]}"

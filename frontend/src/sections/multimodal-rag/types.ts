@@ -36,3 +36,9 @@ export type TrackedDocument = {
   status: DocumentStatus;
   errorMessage?: string;
 };
+
+export type UserMemory = {
+  memory_id: string;
+  content: string;
+  context: string;
+};

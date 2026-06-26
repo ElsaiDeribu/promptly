@@ -36,6 +36,8 @@ export const endpoints = {
     chat: '/api/llm/chat',
     models: '/api/llm/models',
     ragQueryStream: '/api/llm/rag/query/stream',
+    memories: '/api/llm/memories',
+    memoryDetail: (id: string) => `/api/llm/memories/${id}`,
     createUploadUrl: '/api/llm/documents/create-upload-url',
     completeUpload: (id: string) => `/api/llm/documents/${id}/complete-upload`,
     documentDetail: (id: string) => `/api/llm/documents/${id}`,

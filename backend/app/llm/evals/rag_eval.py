@@ -18,7 +18,7 @@ from langsmith import traceable
 from langsmith.schemas import Example
 from langsmith.utils import LangSmithNotFoundError
 
-from app.llm.agents.rag_agent import rag_agent
+from app.llm.agents.rag_agent import build_rag_agent
 
 SAMPLE_DATASET_PATH = Path(__file__).parent / "sample_dataset.json"
 DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
@@ -26,7 +26,7 @@ DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
 
 @traceable(name="rag_eval_target")
 def rag_eval_target(inputs: dict[str, Any]) -> dict[str, Any]:
-    result = rag_agent.invoke(
+    result = build_rag_agent(user_id="eval").invoke(
         {"messages": [HumanMessage(content=inputs["question"])]},
         config={"run_name": "rag_agent_query"},
     )

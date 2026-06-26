@@ -10,6 +10,10 @@ import type { ChatMessage } from './types';
 
 const SSE_PREFIX = 'data: ';
 
+type UseRagChatOptions = {
+  onComplete?: () => void;
+};
+
 type UseRagChatReturn = {
   messages: ChatMessage[];
   loading: boolean;
@@ -25,7 +29,8 @@ type UseRagChatReturn = {
  * SSE stream against the backend, and incrementally updates the assistant
  * message as tokens arrive. Aborts any in-flight request on unmount.
  */
-export function useRagChat(): UseRagChatReturn {
+export function useRagChat(options: UseRagChatOptions = {}): UseRagChatReturn {
+  const { onComplete } = options;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -127,6 +132,7 @@ export function useRagChat(): UseRagChatReturn {
         }
 
         finishStreaming(assistantId);
+        onComplete?.();
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
         setError(resolveErrorMessage(e, 'Failed to send message'));
@@ -135,7 +141,7 @@ export function useRagChat(): UseRagChatReturn {
         setLoading(false);
       }
     },
-    [loading, messages, appendAssistantToken, finishStreaming]
+    [loading, messages, appendAssistantToken, finishStreaming, onComplete]
   );
 
   const clearChat = useCallback(() => {

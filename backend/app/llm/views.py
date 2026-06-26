@@ -17,11 +17,15 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import AIMessageChunk
 from langchain_core.messages import HumanMessage
 
-from .agents.rag_agent import rag_agent
+from .agents.rag_agent import build_rag_agent
 from .models import Document
 from .serializers import CreateUploadURLSerializer
 from .serializers import DocumentSerializer
 from .serializers import RAGQuerySerializer
+from .services.memory import delete_memory
+from .services.memory import format_memories_for_prompt
+from .services.memory import list_memories
+from .services.memory import search_memories
 from .tasks import process_document
 from .utils.s3 import S3Wrapper
 
@@ -154,7 +158,18 @@ def _to_langchain_messages(messages: list[dict]) -> list:
     return lc_messages
 
 
-async def _rag_stream_generator(messages: list[dict]):
+def _memory_search_query(messages: list[dict]) -> str:
+    """Build a search query from the latest conversation turns."""
+    recent = messages[-3:]
+    return " ".join(message["content"] for message in recent if message.get("content"))
+
+
+async def _rag_stream_generator(
+    messages: list[dict],
+    *,
+    user_id: str,
+    memory_context: str = "",
+):
     """Yield SSE events with streamed tokens from the RAG agent.
 
     Uses LangChain's ``astream_events`` (v2) so each LLM token is forwarded
@@ -162,7 +177,9 @@ async def _rag_stream_generator(messages: list[dict]):
     by Django's ASGI handler for ``StreamingHttpResponse``.
     """
     try:
-        async for event in rag_agent.astream_events(
+        agent = build_rag_agent(user_id=user_id, memory_context=memory_context)
+
+        async for event in agent.astream_events(
             {"messages": _to_langchain_messages(messages)},
             version="v2",
             config={"run_name": "rag_agent_query"},
@@ -207,14 +224,63 @@ class RAGQueryStreamView(APIView):
             )
 
         messages = serializer.validated_data["messages"]
+        user_id = str(request.user.id)
+        memories = search_memories(
+            user_id=user_id,
+            query=_memory_search_query(messages),
+            limit=10,
+        )
+        memory_context = format_memories_for_prompt(memories)
 
         response = StreamingHttpResponse(
-            _rag_stream_generator(messages),
+            _rag_stream_generator(
+                messages,
+                user_id=user_id,
+                memory_context=memory_context,
+            ),
             content_type="text/event-stream",
         )
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+class UserMemoryListView(APIView):
+    """List saved memories for the authenticated user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        memories = list_memories(user_id=str(request.user.id))
+        return Response(
+            [
+                {
+                    "memory_id": memory.memory_id,
+                    "content": memory.content,
+                    "context": memory.context,
+                }
+                for memory in memories
+            ],
+            status=status.HTTP_200_OK,
+        )
+
+
+class UserMemoryDetailView(APIView):
+    """Delete a single saved memory."""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, memory_id):
+        deleted = delete_memory(
+            user_id=str(request.user.id),
+            memory_id=str(memory_id),
+        )
+        if not deleted:
+            return Response(
+                {"error": "Memory not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ============================================================
