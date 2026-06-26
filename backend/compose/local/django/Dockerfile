@@ -65,10 +65,6 @@ COPY --from=python-build-stage /usr/src/app/wheels /wheels/
 RUN pip install --no-cache-dir --no-index --find-links=/wheels/ /wheels/* \
   && rm -rf /wheels/
 
-# Download NLTK data at build time (required by unstructured for PDF/text processing)
-ENV NLTK_DATA=/usr/local/share/nltk_data
-RUN python -m nltk.downloader -d "${NLTK_DATA}" punkt punkt_tab averaged_perceptron_tagger averaged_perceptron_tagger_eng
-
 COPY ./compose/production/django/entrypoint /entrypoint
 RUN sed -i 's/\r$//g' /entrypoint
 RUN chmod +x /entrypoint
