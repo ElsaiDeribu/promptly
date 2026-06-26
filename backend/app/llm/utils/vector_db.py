@@ -2,10 +2,24 @@ import os
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
+from langchain_qdrant import FastEmbedSparse
 from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import RetrievalMode
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance
-from qdrant_client.models import VectorParams
+from qdrant_client.http.models import Distance
+from qdrant_client.http.models import SparseIndexParams
+from qdrant_client.http.models import SparseVectorParams
+from qdrant_client.http.models import VectorParams
+from sentence_transformers import CrossEncoder
+
+DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_reranker_cache: dict[str, CrossEncoder] = {}
+
+
+def _get_reranker(model_name: str) -> CrossEncoder:
+    if model_name not in _reranker_cache:
+        _reranker_cache[model_name] = CrossEncoder(model_name)
+    return _reranker_cache[model_name]
 
 
 # ------------------------------------------------------------
@@ -14,13 +28,34 @@ from qdrant_client.models import VectorParams
 class VectorDBWrapper:
     """Wrapper class for vector database operations to make it easy to swap implementations"""
 
-    def __init__(self, embeddings: OpenAIEmbeddings | None = None):
+    DENSE_VECTOR_NAME = "dense"
+    SPARSE_VECTOR_NAME = "sparse"
+
+    def __init__(
+        self,
+        embeddings: OpenAIEmbeddings | None = None,
+        collection_name: str = "multi_modal_rag",
+        enable_reranking: bool = True,
+        rerank_model: str = DEFAULT_RERANK_MODEL,
+        rerank_fetch_multiplier: int = 4,
+    ):
         """Initialize the vector store wrapper
 
         Args:
             embeddings: Optional embeddings model, defaults to OpenAIEmbeddings if not provided
+            collection_name: Name of the Qdrant collection to use
+            enable_reranking: Whether to rerank vector search results with a cross-encoder
+            rerank_model: sentence-transformers cross-encoder model for reranking
+            rerank_fetch_multiplier: Fetch this many times k candidates before reranking
         """
         self.embeddings = embeddings if embeddings else OpenAIEmbeddings()
+        self.collection_name = collection_name
+        self.enable_reranking = enable_reranking
+        self.rerank_model = rerank_model
+        self.rerank_fetch_multiplier = rerank_fetch_multiplier
+
+        # BM25 sparse embeddings, computed locally via fastembed
+        self.sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
 
         # Get Qdrant connection details from environment
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
@@ -31,19 +66,32 @@ class VectorDBWrapper:
 
         # Create collection if it doesn't exist
         try:
-            self.client.get_collection("multi_modal_rag")
+            self.client.get_collection(self.collection_name)
         except Exception:
-            # Create new collection with specified vectors configuration
+            # Create new collection with both dense and sparse vector configs
             self.client.create_collection(
-                collection_name="multi_modal_rag",
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                collection_name=self.collection_name,
+                vectors_config={
+                    self.DENSE_VECTOR_NAME: VectorParams(
+                        size=1536, distance=Distance.COSINE
+                    ),
+                },
+                sparse_vectors_config={
+                    self.SPARSE_VECTOR_NAME: SparseVectorParams(
+                        index=SparseIndexParams(on_disk=False)
+                    ),
+                },
             )
 
-        # Initialize vectorstore
+        # Initialize vectorstore in hybrid retrieval mode
         self.vector_store = QdrantVectorStore(
             client=self.client,
-            collection_name="multi_modal_rag",
+            collection_name=self.collection_name,
             embedding=self.embeddings,
+            sparse_embedding=self.sparse_embeddings,
+            retrieval_mode=RetrievalMode.HYBRID,
+            vector_name=self.DENSE_VECTOR_NAME,
+            sparse_vector_name=self.SPARSE_VECTOR_NAME,
         )
 
     def add_documents(self, documents: list[Document]) -> None:
@@ -55,6 +103,23 @@ class VectorDBWrapper:
         # Add to vectorstore
         self.vector_store.add_documents(documents)
 
+    def _rerank_documents(
+        self, query: str, documents: list[Document], k: int
+    ) -> list[Document]:
+        if not documents:
+            return []
+
+        reranker = _get_reranker(self.rerank_model)
+        pairs = [(query, doc.page_content) for doc in documents]
+        scores = reranker.predict(pairs)
+
+        ranked = sorted(
+            zip(scores, documents, strict=True),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        return [doc for _, doc in ranked[:k]]
+
     def similarity_search(self, query: str, k: int = 4) -> list[Document]:
         """Perform similarity search for a query
 
@@ -65,5 +130,10 @@ class VectorDBWrapper:
         Returns:
             List of relevant documents
         """
-        return self.vector_store.similarity_search(query, k=k)
+        fetch_k = k * self.rerank_fetch_multiplier if self.enable_reranking else k
+        documents = self.vector_store.similarity_search(query, k=fetch_k)
 
+        if self.enable_reranking:
+            return self._rerank_documents(query, documents, k)
+
+        return documents
