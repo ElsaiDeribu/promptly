@@ -24,7 +24,7 @@ function EmptyState() {
 
 export default function ChatWindow({ messages, bottomRef }: ChatWindowProps) {
   return (
-    <div className="h-[50vh] overflow-auto rounded-lg border bg-background p-4">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-lg border bg-background p-4">
       {messages.length === 0 ? (
         <EmptyState />
       ) : (

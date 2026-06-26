@@ -1,4 +1,5 @@
 import { Brain, Loader2, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 import type { UserMemory } from './types';
@@ -6,6 +7,7 @@ import type { UserMemory } from './types';
 // ----------------------------------------------------------------------
 
 type MemoryPanelProps = {
+  className?: string;
   memories: UserMemory[];
   loading: boolean;
   onDelete: (memoryId: string) => void;
@@ -13,14 +15,15 @@ type MemoryPanelProps = {
 };
 
 export default function MemoryPanel({
+  className,
   memories,
   loading,
   onDelete,
   onRefresh,
 }: MemoryPanelProps) {
   return (
-    <div className="rounded-lg border bg-muted/30 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <div className={cn('flex flex-col rounded-lg border bg-muted/30 p-3', className)}>
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Brain className="h-4 w-4" />
           Saved Memories
@@ -30,7 +33,7 @@ export default function MemoryPanel({
         </Button>
       </div>
 
-      <p className="mb-3 text-xs text-muted-foreground">
+      <p className="mb-3 shrink-0 text-xs text-muted-foreground">
         The assistant saves preferences and facts you share across chat sessions.
       </p>
 
@@ -49,7 +52,7 @@ export default function MemoryPanel({
       ) : null}
 
       {memories.length > 0 ? (
-        <ul className="space-y-2">
+        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {memories.map((memory) => (
             <li
               key={memory.memory_id}

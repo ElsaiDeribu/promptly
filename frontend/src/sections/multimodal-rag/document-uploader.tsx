@@ -50,7 +50,7 @@ export default function DocumentUploader({
     <div className="rounded-lg border bg-muted/30 p-2">
       <div className="mb-2 text-sm font-medium">Upload PDF Documents</div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -59,24 +59,26 @@ export default function DocumentUploader({
           disabled={uploading}
           className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         />
-        <LoadingButton
-          type="button"
-          disabled={uploading}
-          onClick={onBrowse}
-          variant="secondary"
-          className="shrink-0"
-        >
-          Browse
-        </LoadingButton>
-        <LoadingButton
-          type="button"
-          loading={uploading}
-          disabled={!hasSelectedFile || uploading}
-          onClick={onUploadAndProcess}
-          className="shrink-0"
-        >
-          {uploading ? 'Uploading...' : 'Upload and Process'}
-        </LoadingButton>
+        <div className="flex gap-2">
+          <LoadingButton
+            type="button"
+            disabled={uploading}
+            onClick={onBrowse}
+            variant="secondary"
+            className="flex-1"
+          >
+            Browse
+          </LoadingButton>
+          <LoadingButton
+            type="button"
+            loading={uploading}
+            disabled={!hasSelectedFile || uploading}
+            onClick={onUploadAndProcess}
+            className="flex-1"
+          >
+            {uploading ? 'Uploading...' : 'Upload and Process'}
+          </LoadingButton>
+        </div>
       </div>
 
       {successMessage && (
@@ -88,12 +90,12 @@ export default function DocumentUploader({
       {documents.length > 0 && (
         <div className="mt-3">
           <div className="mb-1 text-xs font-medium text-muted-foreground">Documents:</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-col gap-1.5">
             {documents.map((doc) => (
               <span
                 key={doc.id}
                 title={doc.errorMessage || undefined}
-                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${STATUS_CHIP_CLASSES[doc.status]}`}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${STATUS_CHIP_CLASSES[doc.status]}`}
               >
                 {isInProgress(doc.status) && <Loader2 className="h-3 w-3 animate-spin" />}
                 <span className="font-medium">{doc.filename}</span>
