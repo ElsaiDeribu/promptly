@@ -1,3 +1,6 @@
+/** Max conversation turns sent to the RAG agent per request (user + assistant pairs). */
+export const CHAT_WINDOW_SIZE = 10;
+
 /**
  * Generate a unique id, preferring the native crypto API and falling back to a
  * timestamp + random suffix for environments where it is unavailable.

@@ -3,14 +3,37 @@ from rest_framework import serializers
 from .models import Document
 
 
+class ChatMessageSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=["user", "assistant"])
+    content = serializers.CharField()
+
+
 class RAGQuerySerializer(serializers.Serializer):
     """
     Schema for RAG Query
     """
 
     question = serializers.CharField(
-        help_text="Question to ask about the processed documents",
+        required=False,
+        help_text="Single-turn question (legacy; use messages for multi-turn)",
     )
+    messages = ChatMessageSerializer(
+        many=True,
+        required=False,
+        help_text="Sliding window of conversation messages",
+    )
+
+    def validate(self, attrs):
+        messages = attrs.get("messages")
+        question = attrs.get("question")
+        if messages:
+            return attrs
+        if question:
+            attrs["messages"] = [{"role": "user", "content": question}]
+            return attrs
+        raise serializers.ValidationError(
+            "Either `messages` or `question` is required.",
+        )
 
 
 class CreateUploadURLSerializer(serializers.Serializer):

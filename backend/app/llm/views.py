@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from langchain_core.messages import AIMessage
 from langchain_core.messages import AIMessageChunk
 from langchain_core.messages import HumanMessage
 
@@ -143,7 +144,17 @@ def _sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-async def _rag_stream_generator(question: str):
+def _to_langchain_messages(messages: list[dict]) -> list:
+    lc_messages = []
+    for message in messages:
+        if message["role"] == "user":
+            lc_messages.append(HumanMessage(content=message["content"]))
+        else:
+            lc_messages.append(AIMessage(content=message["content"]))
+    return lc_messages
+
+
+async def _rag_stream_generator(messages: list[dict]):
     """Yield SSE events with streamed tokens from the RAG agent.
 
     Uses LangChain's ``astream_events`` (v2) so each LLM token is forwarded
@@ -152,7 +163,7 @@ async def _rag_stream_generator(question: str):
     """
     try:
         async for event in rag_agent.astream_events(
-            {"messages": [HumanMessage(content=question)]},
+            {"messages": _to_langchain_messages(messages)},
             version="v2",
             config={"run_name": "rag_agent_query"},
         ):
@@ -175,7 +186,8 @@ class RAGQueryStreamView(APIView):
     which bypasses the DRF renderer pipeline and streams SSE events directly.
 
     Request body:
-      - question: string (required)
+      - messages: [{role: "user"|"assistant", content: string}, ...] (preferred)
+      - question: string (legacy single-turn fallback)
 
     Response: ``text/event-stream`` with JSON payloads:
       - ``{"token": "..."}`` – partial answer token
@@ -194,10 +206,10 @@ class RAGQueryStreamView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        question = serializer.validated_data["question"]
+        messages = serializer.validated_data["messages"]
 
         response = StreamingHttpResponse(
-            _rag_stream_generator(question),
+            _rag_stream_generator(messages),
             content_type="text/event-stream",
         )
         response["Cache-Control"] = "no-cache"

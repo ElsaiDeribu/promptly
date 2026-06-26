@@ -2,7 +2,7 @@ import { endpoints } from '@/utils/axios';
 import { HOST_API } from '@/config-global';
 import { useRef, useState, useEffect, useCallback } from 'react';
 
-import { makeId, resolveErrorMessage } from './utils';
+import { makeId, CHAT_WINDOW_SIZE, resolveErrorMessage } from './utils';
 
 import type { ChatMessage } from './types';
 
@@ -73,6 +73,11 @@ export function useRagChat(): UseRagChatReturn {
         isStreaming: true,
       };
 
+      const messageWindow = [...messages, userMessage]
+        .filter((m) => m.content.trim() && !m.isStreaming)
+        .slice(-CHAT_WINDOW_SIZE)
+        .map(({ role, content }) => ({ role, content }));
+
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
 
       const controller = new AbortController();
@@ -86,7 +91,7 @@ export function useRagChat(): UseRagChatReturn {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ question: text }),
+          body: JSON.stringify({ messages: messageWindow }),
           signal: controller.signal,
         });
 
@@ -130,7 +135,7 @@ export function useRagChat(): UseRagChatReturn {
         setLoading(false);
       }
     },
-    [loading, appendAssistantToken, finishStreaming]
+    [loading, messages, appendAssistantToken, finishStreaming]
   );
 
   const clearChat = useCallback(() => {

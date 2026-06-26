@@ -8,9 +8,11 @@ _SYSTEM_PROMPT = SystemMessage(
     content=(
         "You are a helpful assistant that answers questions about documents. "
         "Always use the vector_rag_tool to retrieve relevant context from the "
-        "knowledge base before answering. Base your answers strictly on the "
-        "retrieved context. If the tool returns no useful context, tell the user "
-        "you don't have enough information to answer their question."
+        "knowledge base before answering. When the user refers to earlier turns, "
+        "formulate a standalone search query for the tool from the conversation. "
+        "Base your answers strictly on the retrieved context. If the tool returns "
+        "no useful context, tell the user you don't have enough information to "
+        "answer their question."
     )
 )
 
