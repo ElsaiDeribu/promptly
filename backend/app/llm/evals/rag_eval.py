@@ -10,18 +10,23 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
+from langchain_openai import ChatOpenAI
 from langsmith import Client
 from langsmith import evaluate
 from langsmith import traceable
 from langsmith.schemas import Example
 from langsmith.utils import LangSmithNotFoundError
+from pydantic import BaseModel
+from pydantic import Field
 
 from app.llm.agents.rag_agent import build_rag_agent
 
 SAMPLE_DATASET_PATH = Path(__file__).parent / "sample_dataset.json"
 DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
+MAX_CONTEXT_CHARS = 12_000
 
 
 @traceable(name="rag_eval_target")
@@ -36,55 +41,82 @@ def rag_eval_target(inputs: dict[str, Any]) -> dict[str, Any]:
     return {"answer": messages[-1].content if messages else "", "messages": messages}
 
 
-def has_retrieved_context(
+class FaithfulnessGrade(BaseModel):
+    score: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+_FAITHFULNESS_JUDGE = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,
+).with_structured_output(FaithfulnessGrade)
+
+_FAITHFULNESS_PROMPT = """You judge whether an answer is faithful to (grounded in) the retrieved context.
+
+Rules:
+- 1.0: every factual claim in the answer is supported by the context
+- 0.0: the answer invents facts or contradicts the context
+- If the answer correctly says it lacks enough information and the context is empty or irrelevant, score 1.0
+- Ignore style; only judge factual grounding
+
+Question:
+{question}
+
+Retrieved context:
+{context}
+
+Answer:
+{answer}
+"""
+
+
+def _extract_retrieved_context(messages: list[BaseMessage]) -> str:
+    chunks: list[str] = []
+    for message in messages:
+        if (
+            isinstance(message, ToolMessage)
+            and message.name == "vector_rag_tool"
+            and "No relevant context found" not in message.content
+        ):
+            chunks.append(message.content)
+    context = "\n\n".join(chunks)
+    if len(context) > MAX_CONTEXT_CHARS:
+        return context[:MAX_CONTEXT_CHARS]
+    return context
+
+
+def faithfulness(
     inputs: dict[str, Any],
     outputs: dict[str, Any],
-    reference_outputs: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    messages = outputs.get("messages") or []
-    has_context = any(
-        isinstance(m, ToolMessage)
-        and m.name == "vector_rag_tool"
-        and "No relevant context found" not in m.content
-        for m in messages
+    """LLM-as-judge: score how grounded the answer is in retrieved context."""
+    context = _extract_retrieved_context(outputs.get("messages") or [])
+    answer = (outputs.get("answer") or "").strip()
+
+    if not context:
+        return {
+            "key": "faithfulness",
+            "score": None,
+            "comment": "No retrieved context to judge against.",
+        }
+    if not answer:
+        return {"key": "faithfulness", "score": 0.0, "comment": "Empty answer."}
+
+    grade = _FAITHFULNESS_JUDGE.invoke(
+        _FAITHFULNESS_PROMPT.format(
+            question=inputs["question"],
+            context=context,
+            answer=answer,
+        ),
     )
-    return {"key": "has_context", "score": 1.0 if has_context else 0.0}
+    return {
+        "key": "faithfulness",
+        "score": grade.score,
+        "comment": grade.reason,
+    }
 
 
-def answer_not_empty(
-    inputs: dict[str, Any],
-    outputs: dict[str, Any],
-    reference_outputs: dict[str, Any] | None,
-) -> dict[str, Any]:
-    answer = (outputs.get("answer") or "").strip().lower()
-    if not answer or "don't have enough context" in answer:
-        return {"key": "answer_not_empty", "score": 0.0}
-    return {"key": "answer_not_empty", "score": 1.0}
-
-
-def reference_answer_overlap(
-    inputs: dict[str, Any],
-    outputs: dict[str, Any],
-    reference_outputs: dict[str, Any] | None,
-) -> dict[str, Any]:
-    reference = ((reference_outputs or {}).get("answer") or "").strip()
-    if not reference:
-        return {"key": "reference_overlap", "score": None}
-
-    answer_words = set((outputs.get("answer") or "").lower().split())
-    reference_words = set(reference.lower().split())
-    if not reference_words:
-        return {"key": "reference_overlap", "score": None}
-
-    overlap = len(answer_words & reference_words) / len(reference_words)
-    return {"key": "reference_overlap", "score": overlap}
-
-
-DEFAULT_EVALUATORS = [
-    has_retrieved_context,
-    answer_not_empty,
-    reference_answer_overlap,
-]
+DEFAULT_EVALUATORS = [faithfulness]
 
 
 def load_examples(dataset_path: Path | None = None) -> list[dict[str, Any]]:
