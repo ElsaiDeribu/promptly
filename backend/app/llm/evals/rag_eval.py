@@ -41,15 +41,15 @@ def rag_eval_target(inputs: dict[str, Any]) -> dict[str, Any]:
     return {"answer": messages[-1].content if messages else "", "messages": messages}
 
 
-class FaithfulnessGrade(BaseModel):
+class EvalGrade(BaseModel):
     score: float = Field(ge=0.0, le=1.0)
     reason: str
 
 
-_FAITHFULNESS_JUDGE = ChatOpenAI(
+_JUDGE = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0,
-).with_structured_output(FaithfulnessGrade)
+).with_structured_output(EvalGrade)
 
 _FAITHFULNESS_PROMPT = """You judge whether an answer is faithful to (grounded in) the retrieved context.
 
@@ -64,6 +64,21 @@ Question:
 
 Retrieved context:
 {context}
+
+Answer:
+{answer}
+"""
+
+_RELEVANCY_PROMPT = """You judge whether an answer is relevant to the question asked.
+
+Rules:
+- 1.0: the answer directly and fully addresses the question
+- 0.0: the answer is off-topic, evasive without cause, or does not address the question
+- Partial scores for partially relevant answers
+- Do not judge factual grounding in source documents (that is scored separately)
+
+Question:
+{question}
 
 Answer:
 {answer}
@@ -102,7 +117,7 @@ def faithfulness(
     if not answer:
         return {"key": "faithfulness", "score": 0.0, "comment": "Empty answer."}
 
-    grade = _FAITHFULNESS_JUDGE.invoke(
+    grade = _JUDGE.invoke(
         _FAITHFULNESS_PROMPT.format(
             question=inputs["question"],
             context=context,
@@ -116,7 +131,29 @@ def faithfulness(
     }
 
 
-DEFAULT_EVALUATORS = [faithfulness]
+def answer_relevancy(
+    inputs: dict[str, Any],
+    outputs: dict[str, Any],
+) -> dict[str, Any]:
+    """LLM-as-judge: score how relevant the answer is to the question."""
+    answer = (outputs.get("answer") or "").strip()
+    if not answer:
+        return {"key": "answer_relevancy", "score": 0.0, "comment": "Empty answer."}
+
+    grade = _JUDGE.invoke(
+        _RELEVANCY_PROMPT.format(
+            question=inputs["question"],
+            answer=answer,
+        ),
+    )
+    return {
+        "key": "answer_relevancy",
+        "score": grade.score,
+        "comment": grade.reason,
+    }
+
+
+DEFAULT_EVALUATORS = [faithfulness, answer_relevancy]
 
 
 def load_examples(dataset_path: Path | None = None) -> list[dict[str, Any]]:
