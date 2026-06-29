@@ -1,6 +1,6 @@
-import { Brain, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Brain, Trash2, Loader2 } from 'lucide-react';
 
 import type { UserMemory } from './types';
 

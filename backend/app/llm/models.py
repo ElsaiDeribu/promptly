@@ -37,6 +37,17 @@ class Document(models.Model):
         db_index=True,
     )
     error_message = models.TextField(blank=True, default="")
+    eval_generation_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("none", "None"),
+            ("processing", "Processing"),
+            ("completed", "Completed"),
+            ("failed", "Failed"),
+        ],
+        default="none",
+        db_index=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -67,3 +78,34 @@ class UserMemory(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}: {self.content[:60]}"
+
+
+class EvalExample(models.Model):
+    """Golden eval example generated from an ingested document."""
+
+    class Source(models.TextChoices):
+        GENERATED = "generated", "Generated"
+
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="eval_examples",
+    )
+    inputs = models.JSONField()
+    outputs = models.JSONField(default=dict)
+    source = models.CharField(
+        max_length=16,
+        choices=Source.choices,
+        default=Source.GENERATED,
+    )
+    # TODO: Add a bidirectional sync to the LangSmith.
+    langsmith_example_id = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        question = (self.inputs or {}).get("question", "")
+        return f"EvalExample({self.document_id}): {question[:60]}"

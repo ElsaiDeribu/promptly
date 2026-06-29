@@ -41,5 +41,7 @@ export const endpoints = {
     createUploadUrl: '/api/llm/documents/create-upload-url',
     completeUpload: (id: string) => `/api/llm/documents/${id}/complete-upload`,
     documentDetail: (id: string) => `/api/llm/documents/${id}`,
+    generateEvalExamples: (id: string) => `/api/llm/documents/${id}/generate-eval-examples`,
+    evalExamples: (id: string) => `/api/llm/documents/${id}/eval-examples`,
   },
 };

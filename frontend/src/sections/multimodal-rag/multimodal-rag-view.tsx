@@ -88,6 +88,7 @@ export default function MultimodalRagView() {
                 onSelectFile={handleSelectFile}
                 onBrowse={upload.openFilePicker}
                 onUploadAndProcess={handleUploadAndProcess}
+                onGenerateEvalExamples={upload.generateEvalExamples}
               />
             </div>
 

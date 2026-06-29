@@ -54,7 +54,11 @@ def process_document(self, document_id: int):
             temp_path = tmp_file.name
 
         processing_graph = create_processing_graph()
-        initial_state = create_processing_state(temp_path)
+        initial_state = create_processing_state(
+            temp_path,
+            document_id=document.id,
+            original_filename=document.original_filename,
+        )
         processing_graph.invoke(initial_state)
 
         document.status = Document.Status.PROCESSED
@@ -71,3 +75,49 @@ def process_document(self, document_id: int):
                 os.unlink(temp_path)
             except OSError:
                 pass
+
+
+GENERATE_EVAL_SOFT_TIME_LIMIT = 20 * 60
+GENERATE_EVAL_HARD_TIME_LIMIT = 25 * 60
+
+
+@shared_task(
+    bind=True,
+    max_retries=1,
+    soft_time_limit=GENERATE_EVAL_SOFT_TIME_LIMIT,
+    time_limit=GENERATE_EVAL_HARD_TIME_LIMIT,
+)
+def generate_eval_examples(self, document_id: int, sync_langsmith: bool = False):
+    """Generate golden eval examples for a processed document."""
+    from .evals.dataset import replace_golden_examples_for_document
+    from .evals.generate_examples import generate_golden_examples_for_document
+
+    try:
+        document = Document.objects.get(pk=document_id)
+    except Document.DoesNotExist:
+        logger.error("generate_eval_examples: document %s not found", document_id)
+        return
+
+    document.eval_generation_status = "processing"
+    document.save(update_fields=["eval_generation_status", "updated_at"])
+
+    try:
+        examples = generate_golden_examples_for_document(document)
+        count = replace_golden_examples_for_document(
+            document,
+            examples,
+            sync_langsmith=sync_langsmith,
+        )
+        document.eval_generation_status = "completed"
+        document.save(update_fields=["eval_generation_status", "updated_at"])
+        logger.info(
+            "Generated %s eval examples for document %s",
+            count,
+            document_id,
+        )
+        return {"document_id": document_id, "examples_added": count}
+    except Exception:
+        logger.exception("Failed to generate eval examples for document %s", document_id)
+        document.eval_generation_status = "failed"
+        document.save(update_fields=["eval_generation_status", "updated_at"])
+        raise

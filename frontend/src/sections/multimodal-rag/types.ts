@@ -26,8 +26,24 @@ export type DocumentDetailResponse = {
   content_type: string;
   status: DocumentStatus;
   error_message: string;
+  eval_generation_status: EvalGenerationStatus;
+  eval_example_count: number;
   created_at: string;
   updated_at: string;
+};
+
+export type EvalGenerationStatus = 'none' | 'processing' | 'completed' | 'failed';
+
+export type GenerateEvalExamplesResponse = {
+  document_id: string;
+  eval_generation_status: EvalGenerationStatus;
+  message: string;
+};
+
+export type EvalExamplesStatusResponse = {
+  document_id: number;
+  eval_generation_status: EvalGenerationStatus;
+  eval_example_count: number;
 };
 
 export type TrackedDocument = {
@@ -35,6 +51,9 @@ export type TrackedDocument = {
   filename: string;
   status: DocumentStatus;
   errorMessage?: string;
+  evalGenerationStatus?: EvalGenerationStatus;
+  evalExampleCount?: number;
+  generatingEval?: boolean;
 };
 
 export type UserMemory = {

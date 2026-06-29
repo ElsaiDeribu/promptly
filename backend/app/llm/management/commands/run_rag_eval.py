@@ -3,8 +3,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.core.management.base import CommandError
 
+from app.llm.evals.dataset import load_golden_examples
 from app.llm.evals.rag_eval import DEFAULT_DATASET_NAME
-from app.llm.evals.rag_eval import SAMPLE_DATASET_PATH
 from app.llm.evals.rag_eval import langsmith_configured
 from app.llm.evals.rag_eval import load_examples
 from app.llm.evals.rag_eval import run_rag_evaluation
@@ -17,8 +17,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dataset-file",
             type=Path,
-            default=SAMPLE_DATASET_PATH,
-            help="Path to a JSON file of eval examples (inputs/outputs).",
+            default=None,
+            help="Load eval examples from a JSON file instead of the Postgres golden dataset.",
         )
         parser.add_argument(
             "--dataset-name",
@@ -41,6 +41,12 @@ class Command(BaseCommand):
             help="Run evals without uploading results to LangSmith.",
         )
         parser.add_argument(
+            "--document-id",
+            type=int,
+            default=None,
+            help="When loading from Postgres, optionally restrict to one document.",
+        )
+        parser.add_argument(
             "--max-concurrency",
             type=int,
             default=1,
@@ -55,19 +61,28 @@ class Command(BaseCommand):
                 "or pass --local to run without uploading.",
             )
 
-        dataset_file: Path = options["dataset_file"]
-        if not dataset_file.exists():
-            raise CommandError(f"Dataset file not found: {dataset_file}")
+        dataset_file: Path | None = options["dataset_file"]
+        document_id = options["document_id"]
 
-        examples = load_examples(dataset_file)
+        if dataset_file is not None:
+            if not dataset_file.exists():
+                raise CommandError(f"Dataset file not found: {dataset_file}")
+            examples = load_examples(dataset_file)
+            source_label = str(dataset_file)
+        else:
+            examples = load_golden_examples(document_id=document_id)
+            source_label = "golden dataset"
+            if document_id is not None:
+                source_label += f" (document_id={document_id})"
+
         self.stdout.write(
             self.style.NOTICE(
-                f"Running eval on {len(examples)} examples from {dataset_file}",
+                f"Running eval on {len(examples)} examples from {source_label}",
             ),
         )
 
         if not examples:
-            raise CommandError("Dataset file contains no examples.")
+            raise CommandError("No eval examples found.")
 
         results = run_rag_evaluation(
             examples=examples,

@@ -21,11 +21,14 @@ from .agents.rag_agent import build_rag_agent
 from .models import Document
 from .serializers import CreateUploadURLSerializer
 from .serializers import DocumentSerializer
+from .serializers import EvalExamplesStatusSerializer
+from .serializers import GenerateEvalExamplesSerializer
 from .serializers import RAGQuerySerializer
 from .services.memory import delete_memory
 from .services.memory import format_memories_for_prompt
 from .services.memory import list_memories
 from .services.memory import search_memories
+from .tasks import generate_eval_examples
 from .tasks import process_document
 from .utils.s3 import S3Wrapper
 
@@ -391,15 +394,21 @@ class CompleteUploadView(APIView):
         )
 
 
+def _get_user_document(request, document_id: int) -> Document | None:
+    try:
+        return Document.objects.get(pk=document_id, user=request.user)
+    except Document.DoesNotExist:
+        return None
+
+
 class DocumentDetailView(APIView):
     """Poll the processing status of a document."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, document_id: int):
-        try:
-            document = Document.objects.get(pk=document_id)
-        except Document.DoesNotExist:
+        document = _get_user_document(request, document_id)
+        if document is None:
             return Response(
                 {"error": "Document not found"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -407,5 +416,93 @@ class DocumentDetailView(APIView):
 
         return Response(
             DocumentSerializer(document).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class GenerateEvalExamplesView(APIView):
+    """Generate golden eval examples for a processed document."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if document.status != Document.Status.PROCESSED:
+            return Response(
+                {"error": "Document must be processed before generating eval examples."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if document.eval_generation_status == "processing":
+            return Response(
+                {
+                    "document_id": str(document.id),
+                    "eval_generation_status": document.eval_generation_status,
+                    "message": "Eval example generation is already in progress.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = GenerateEvalExamplesSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        document.eval_generation_status = "processing"
+        document.save(update_fields=["eval_generation_status", "updated_at"])
+
+        generate_eval_examples.delay(
+            document.id,
+            sync_langsmith=serializer.validated_data["sync_langsmith"],
+        )
+
+        return Response(
+            {
+                "document_id": str(document.id),
+                "eval_generation_status": "processing",
+                "message": "Generating eval examples.",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class EvalExamplesStatusView(APIView):
+    """Return golden eval example status for a document."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        include_examples = request.query_params.get("include_examples") == "true"
+        payload = {
+            "document_id": document.id,
+            "eval_generation_status": document.eval_generation_status,
+            "eval_example_count": document.eval_examples.count(),
+        }
+        if include_examples:
+            payload["examples"] = [
+                {
+                    "inputs": example.inputs,
+                    "outputs": example.outputs,
+                }
+                for example in document.eval_examples.order_by("id")
+            ]
+
+        return Response(
+            EvalExamplesStatusSerializer(payload).data,
             status=status.HTTP_200_OK,
         )

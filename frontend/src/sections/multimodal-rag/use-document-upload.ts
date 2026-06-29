@@ -8,6 +8,8 @@ import type {
   DocumentDetailResponse,
   CompleteUploadResponse,
   CreateUploadUrlResponse,
+  EvalExamplesStatusResponse,
+  GenerateEvalExamplesResponse,
 } from './types';
 
 // ----------------------------------------------------------------------
@@ -18,6 +20,8 @@ const DEFAULT_CONTENT_TYPE = 'application/pdf';
 const POLL_INTERVALS_MS = [30_000, 60_000, 120_000];
 const MAX_POLL_INTERVAL_MS = 120_000;
 const MAX_POLL_DURATION_MS = 60 * 60 * 1000; // ~1 hour before we give up polling
+const EVAL_POLL_INTERVAL_MS = 3000;
+const EVAL_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 
 function getPollIntervalMs(scheduleIndex: number): number {
   return scheduleIndex < POLL_INTERVALS_MS.length
@@ -35,6 +39,7 @@ type UseDocumentUploadReturn = {
   openFilePicker: () => void;
   selectFile: (file: File | null) => void;
   uploadSelectedFile: () => Promise<void>;
+  generateEvalExamples: (documentId: string) => Promise<void>;
   resetFeedback: () => void;
 };
 
@@ -97,6 +102,8 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
           updateDocument(documentId, {
             status: data.status,
             errorMessage: data.error_message || undefined,
+            evalGenerationStatus: data.eval_generation_status,
+            evalExampleCount: data.eval_example_count,
           });
 
           if (data.status === 'processed' || data.status === 'failed') {
@@ -114,6 +121,75 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
       scheduleNext();
     },
     [updateDocument]
+  );
+
+  const pollEvalGeneration = useCallback(
+    (documentId: string) =>
+      new Promise<void>((resolve, reject) => {
+        const startedAt = Date.now();
+
+        const tick = async () => {
+          if (Date.now() - startedAt >= EVAL_POLL_TIMEOUT_MS) {
+            updateDocument(documentId, { generatingEval: false });
+            reject(new Error('Timed out waiting for eval example generation'));
+            return;
+          }
+
+          try {
+            const { data } = await axios.get<EvalExamplesStatusResponse>(
+              endpoints.llm.evalExamples(documentId)
+            );
+
+            updateDocument(documentId, {
+              evalGenerationStatus: data.eval_generation_status,
+              evalExampleCount: data.eval_example_count,
+            });
+
+            if (data.eval_generation_status === 'completed') {
+              updateDocument(documentId, { generatingEval: false });
+              resolve();
+              return;
+            }
+
+            if (data.eval_generation_status === 'failed') {
+              updateDocument(documentId, { generatingEval: false });
+              reject(new Error('Failed to generate eval examples'));
+              return;
+            }
+          } catch (error) {
+            updateDocument(documentId, { generatingEval: false });
+            reject(error);
+            return;
+          }
+
+          setTimeout(tick, EVAL_POLL_INTERVAL_MS);
+        };
+
+        tick();
+      }),
+    [updateDocument]
+  );
+
+  const generateEvalExamples = useCallback(
+    async (documentId: string) => {
+      setError('');
+      setSuccessMessage('');
+      updateDocument(documentId, {
+        generatingEval: true,
+        evalGenerationStatus: 'processing',
+      });
+
+      try {
+        await axios.post<GenerateEvalExamplesResponse>(
+          endpoints.llm.generateEvalExamples(documentId)
+        );
+        await pollEvalGeneration(documentId);
+        setSuccessMessage('Eval examples added to the golden dataset.');
+      } catch (e) {
+        setError(resolveErrorMessage(e, 'Failed to generate eval examples'));
+      }
+    },
+    [pollEvalGeneration, updateDocument]
   );
 
   const resetFeedback = useCallback(() => {
@@ -205,6 +281,7 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
     openFilePicker,
     selectFile,
     uploadSelectedFile,
+    generateEvalExamples,
     resetFeedback,
   };
 }

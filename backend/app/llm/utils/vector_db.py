@@ -137,3 +137,47 @@ class VectorDBWrapper:
             return self._rerank_documents(query, documents, k)
 
         return documents
+
+    def scroll_by_document_id(self, document_id: int, *, limit: int = 256) -> list[Document]:
+        """Return indexed chunks for a document via Qdrant metadata filter."""
+        from qdrant_client.http.models import FieldCondition
+        from qdrant_client.http.models import Filter
+        from qdrant_client.http.models import MatchValue
+
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.document_id",
+                    match=MatchValue(value=document_id),
+                ),
+            ],
+        )
+
+        documents: list[Document] = []
+        offset = None
+        while len(documents) < limit:
+            batch, offset = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=scroll_filter,
+                limit=min(64, limit - len(documents)),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not batch:
+                break
+
+            for point in batch:
+                payload = point.payload or {}
+                page_content = payload.get("page_content") or payload.get("text") or ""
+                metadata = payload.get("metadata") or {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                documents.append(
+                    Document(page_content=page_content, metadata=metadata),
+                )
+
+            if offset is None:
+                break
+
+        return documents

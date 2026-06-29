@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import Document
+from .models import EvalExample
 from .models import UserMemory
 
 
@@ -24,3 +25,16 @@ class UserMemoryAdmin(admin.ModelAdmin):
     @admin.display(description="Content")
     def content_preview(self, obj: UserMemory) -> str:
         return obj.content[:80]
+
+
+@admin.register(EvalExample)
+class EvalExampleAdmin(admin.ModelAdmin):
+    list_display = ["id", "document", "question_preview", "source", "created_at"]
+    list_filter = ["source", "created_at"]
+    search_fields = ["inputs", "outputs", "document__original_filename"]
+    readonly_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at"]
+
+    @admin.display(description="Question")
+    def question_preview(self, obj: EvalExample) -> str:
+        return str((obj.inputs or {}).get("question", ""))[:80]

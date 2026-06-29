@@ -1,6 +1,5 @@
-import axios from '@/utils/axios';
-import { endpoints } from '@/utils/axios';
-import { useCallback, useEffect, useState } from 'react';
+import axios, { endpoints } from '@/utils/axios';
+import { useState, useEffect, useCallback } from 'react';
 
 import { resolveErrorMessage } from './utils';
 

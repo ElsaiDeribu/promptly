@@ -26,16 +26,23 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # State Definitions
 # ============================================================
-class ProcessingState(TypedDict):
+class ProcessingState(TypedDict, total=False):
     """State for PDF processing workflow"""
     file_path: str
+    document_id: int
+    original_filename: str
     chunks: list
     summaries: dict[str, list[str]]
     vector_db: VectorDBWrapper
     object_store: S3Wrapper
 
 
-def create_processing_state(file_path: str) -> ProcessingState:
+def create_processing_state(
+    file_path: str,
+    *,
+    document_id: int | None = None,
+    original_filename: str | None = None,
+) -> ProcessingState:
     """
     Create initial state for PDF processing.
 
@@ -50,11 +57,23 @@ def create_processing_state(file_path: str) -> ProcessingState:
     """
     return {
         "file_path": file_path,
+        "document_id": document_id,
+        "original_filename": original_filename or "",
         "chunks": [],
         "summaries": {},
         "vector_db": VectorDBWrapper(),
         "object_store": S3Wrapper(),
     }
+
+
+def _chunk_metadata(state: ProcessingState, source_id: str, **extra: str | int) -> dict[str, str | int]:
+    metadata: dict[str, str | int] = {"source_id": source_id}
+    if document_id := state.get("document_id"):
+        metadata["document_id"] = document_id
+    if filename := state.get("original_filename"):
+        metadata["original_filename"] = filename
+    metadata.update(extra)
+    return metadata
 
 
 # ============================================================
@@ -143,7 +162,6 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
     """Load summaries into vector store with links to original content"""
     try:
         vector_db = state["vector_db"]
-        id_key = "source_id"
 
         # Get content and summaries
         texts = [chunk.text for chunk in state["chunks"] if hasattr(chunk, "text")]
@@ -176,7 +194,10 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
 
         # Add text summaries
         summary_texts = [
-            Document(page_content=summary, metadata={id_key: doc_ids[i]})
+            Document(
+                page_content=summary,
+                metadata=_chunk_metadata(state, doc_ids[i], content_type="text"),
+            )
             for i, summary in clean_text_summaries
         ]
         if summary_texts:
@@ -184,12 +205,20 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
             # Store text content directly in metadata
             for i, _ in clean_text_summaries:
                 vector_db.vector_store.add_documents(
-                    [Document(page_content=texts[i], metadata={id_key: doc_ids[i]})],
+                    [
+                        Document(
+                            page_content=texts[i],
+                            metadata=_chunk_metadata(state, doc_ids[i], content_type="text"),
+                        ),
+                    ],
                 )
 
         # Add table summaries
         summary_tables = [
-            Document(page_content=summary, metadata={id_key: table_ids[i]})
+            Document(
+                page_content=summary,
+                metadata=_chunk_metadata(state, table_ids[i], content_type="table"),
+            )
             for i, summary in clean_table_summaries
         ]
         if summary_tables:
@@ -197,7 +226,12 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
             # Store table content directly in metadata
             for i, _ in clean_table_summaries:
                 vector_db.vector_store.add_documents(
-                    [Document(page_content=tables[i], metadata={id_key: table_ids[i]})],
+                    [
+                        Document(
+                            page_content=tables[i],
+                            metadata=_chunk_metadata(state, table_ids[i], content_type="table"),
+                        ),
+                    ],
                 )
 
         # Add image summaries and save images to MinIO
@@ -219,7 +253,12 @@ def load_summaries(state: ProcessingState) -> ProcessingState:
             summary_img.append(
                 Document(
                     page_content=summary,
-                    metadata={id_key: img_id, "image_key": img_key},
+                    metadata=_chunk_metadata(
+                        state,
+                        img_id,
+                        content_type="image",
+                        image_key=img_key,
+                    ),
                 ),
             )
 

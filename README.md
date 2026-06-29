@@ -599,7 +599,8 @@ docker exec -it app_local_django python manage.py run_rag_eval
 | --------------------------- | ------------------------------------------------------------------------- |
 | `--local`                   | Run evaluators without uploading to LangSmith                             |
 | `--sync-dataset`            | Push examples to a LangSmith dataset first                                |
-| `--dataset-file <path>`     | JSON file of eval examples (`inputs.question`, optional `outputs.answer`) |
+| `--dataset-file <path>`     | Use a JSON file instead of the Postgres golden dataset (default source)   |
+| `--document-id <n>`         | When using the golden dataset, restrict evals to one document             |
 | `--dataset-name <name>`     | LangSmith dataset name (default: `promptly-multimodal-rag`)               |
 | `--experiment-prefix <str>` | Prefix for the experiment name (default: `promptly-rag`)                  |
 | `--max-concurrency <n>`     | Parallel eval runs (default: 1)                                           |
@@ -612,7 +613,7 @@ docker exec -it app_local_django python manage.py run_rag_eval
 | `answer_not_empty`  | Answer is non-empty and does not fall back to "don't have enough context"                                      |
 | `reference_overlap` | Word-overlap ratio between the generated answer and a reference answer (skipped when no reference is provided) |
 
-Evals invoke the same `build_rag_agent` used in production (without user memory context). Customise `backend/app/llm/evals/sample_dataset.json` with reference answers once you know what your indexed PDFs should return.
+Evals invoke the same `build_rag_agent` used in production (without user memory context). By default, examples are loaded from the Postgres golden dataset (`EvalExample` rows generated after document ingestion). Pass `--dataset-file` to use a static JSON file instead.
 
 ---
 

@@ -3,6 +3,8 @@ from django.urls import path
 from .views import CompleteUploadView
 from .views import CreateUploadURLView
 from .views import DocumentDetailView
+from .views import EvalExamplesStatusView
+from .views import GenerateEvalExamplesView
 from .views import OllamaChatView
 from .views import OllamaModelsView
 from .views import RAGQueryStreamView
@@ -34,5 +36,15 @@ urlpatterns = [
         "documents/<int:document_id>",
         DocumentDetailView.as_view(),
         name="documents-detail",
+    ),
+    path(
+        "documents/<int:document_id>/generate-eval-examples",
+        GenerateEvalExamplesView.as_view(),
+        name="documents-generate-eval-examples",
+    ),
+    path(
+        "documents/<int:document_id>/eval-examples",
+        EvalExamplesStatusView.as_view(),
+        name="documents-eval-examples",
     ),
 ]

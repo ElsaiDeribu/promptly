@@ -59,6 +59,8 @@ class CreateUploadURLSerializer(serializers.Serializer):
 class DocumentSerializer(serializers.ModelSerializer):
     """Read schema for a document's processing state."""
 
+    eval_example_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Document
         fields = [
@@ -67,7 +69,23 @@ class DocumentSerializer(serializers.ModelSerializer):
             "content_type",
             "status",
             "error_message",
+            "eval_generation_status",
+            "eval_example_count",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_eval_example_count(self, obj: Document) -> int:
+        return obj.eval_examples.count()
+
+
+class GenerateEvalExamplesSerializer(serializers.Serializer):
+    sync_langsmith = serializers.BooleanField(required=False, default=False)
+
+
+class EvalExamplesStatusSerializer(serializers.Serializer):
+    document_id = serializers.IntegerField()
+    eval_generation_status = serializers.CharField()
+    eval_example_count = serializers.IntegerField()
+    examples = serializers.ListField(child=serializers.DictField(), required=False)

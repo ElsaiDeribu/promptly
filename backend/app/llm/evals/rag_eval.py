@@ -147,7 +147,12 @@ def run_rag_evaluation(
     max_concurrency: int = 1,
 ) -> Any:
     """Run offline evals against the RAG chat pipeline."""
-    loaded_examples = examples or load_examples()
+    if examples is None:
+        from app.llm.evals.dataset import load_golden_examples
+
+        loaded_examples = load_golden_examples()
+    else:
+        loaded_examples = examples
 
     if upload_results and not langsmith_configured():
         msg = "LANGSMITH_API_KEY is required when uploading eval results."
