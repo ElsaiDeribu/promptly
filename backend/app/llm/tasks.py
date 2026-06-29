@@ -98,9 +98,6 @@ def generate_eval_examples(self, document_id: int, sync_langsmith: bool = False)
         logger.error("generate_eval_examples: document %s not found", document_id)
         return
 
-    document.eval_generation_status = "processing"
-    document.save(update_fields=["eval_generation_status", "updated_at"])
-
     try:
         examples = generate_golden_examples_for_document(document)
         count = replace_golden_examples_for_document(

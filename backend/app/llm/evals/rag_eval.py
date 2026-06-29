@@ -26,7 +26,9 @@ DEFAULT_DATASET_NAME = "promptly-multimodal-rag"
 
 @traceable(name="rag_eval_target")
 def rag_eval_target(inputs: dict[str, Any]) -> dict[str, Any]:
-    result = build_rag_agent(user_id="eval").invoke(
+    document_id = inputs.get("document_id")
+    agent = build_rag_agent(user_id="eval", document_id=document_id)
+    result = agent.invoke(
         {"messages": [HumanMessage(content=inputs["question"])]},
         config={"run_name": "rag_agent_query"},
     )

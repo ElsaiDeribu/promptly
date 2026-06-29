@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import transaction
 from langsmith import Client
 
 from app.llm.evals.rag_eval import DEFAULT_DATASET_NAME
@@ -35,20 +36,22 @@ def replace_golden_examples_for_document(
     sync_langsmith: bool = False,
 ) -> int:
     """Replace all golden examples for a document and optionally sync to LangSmith."""
-    EvalExample.objects.filter(document=document).delete()
+    with transaction.atomic():
+        EvalExample.objects.filter(document=document).delete()
+        created = EvalExample.objects.bulk_create(
+            [
+                EvalExample(
+                    document=document,
+                    inputs=example["inputs"],
+                    outputs=example.get("outputs", {}),
+                )
+                for example in examples
+            ],
+        )
 
-    created = EvalExample.objects.bulk_create(
-        [
-            EvalExample(
-                document=document,
-                inputs=example["inputs"],
-                outputs=example.get("outputs", {}),
+        if sync_langsmith and langsmith_configured() and examples:
+            transaction.on_commit(
+                lambda: sync_dataset(Client(), DEFAULT_DATASET_NAME, examples),
             )
-            for example in examples
-        ],
-    )
 
-    if sync_langsmith and langsmith_configured() and examples:
-        sync_dataset(Client(), DEFAULT_DATASET_NAME, examples)
-
-    return len(created)
+        return len(created)

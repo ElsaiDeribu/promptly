@@ -1,7 +1,7 @@
 import json
 import logging
 
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 
 from ...llm.utils.s3 import S3Wrapper
 from ...llm.utils.vector_db import VectorDBWrapper
@@ -9,6 +9,19 @@ from ...llm.utils.vector_db import VectorDBWrapper
 logger = logging.getLogger(__name__)
 
 _NO_CONTEXT_MSG = "No relevant context found in the knowledge base."
+
+_TOOL_DESCRIPTION = """Retrieve relevant context from the vector store for a given question.
+
+Use this tool to fetch document context before answering questions that require
+information from ingested documents. Returns the retrieved text chunks and image
+data so the agent can generate a grounded answer.
+
+Args:
+    question: The user question to retrieve context for.
+
+Returns:
+    Retrieved context as a string, or a message indicating nothing was found.
+"""
 
 
 def _format_chunk(doc, object_store: S3Wrapper) -> str | None:
@@ -37,32 +50,31 @@ def _parse_docs(docs, object_store: S3Wrapper) -> list[str]:
     return chunks
 
 
-@tool
-def vector_rag_tool(question: str) -> str:
-    """Retrieve relevant context from the vector store for a given question.
+def make_vector_rag_tool(*, document_id: int | None = None) -> StructuredTool:
+    """Return a retrieval tool, optionally scoped to one document."""
 
-    Use this tool to fetch document context before answering questions that require
-    information from ingested documents. Returns the retrieved text chunks and image
-    data so the agent can generate a grounded answer.
+    def _retrieve(question: str) -> str:
+        try:
+            vector_db = VectorDBWrapper()
+            object_store = S3Wrapper()
 
-    Args:
-        question: The user question to retrieve context for.
+            docs = vector_db.similarity_search(question, document_id=document_id)
+            chunks = _parse_docs(docs=docs, object_store=object_store)
 
-    Returns:
-        Retrieved context as a string, or a message indicating nothing was found.
-    """
-    try:
-        vector_db = VectorDBWrapper()
-        object_store = S3Wrapper()
+            if not chunks:
+                return _NO_CONTEXT_MSG
 
-        docs = vector_db.similarity_search(question)
-        chunks = _parse_docs(docs=docs, object_store=object_store)
+            return json.dumps(chunks)
 
-        if not chunks:
-            return _NO_CONTEXT_MSG
+        except Exception as e:
+            logger.error(f"Error in vector_rag_tool: {e!s}")
+            raise
 
-        return json.dumps(chunks)
+    return StructuredTool.from_function(
+        func=_retrieve,
+        name="vector_rag_tool",
+        description=_TOOL_DESCRIPTION,
+    )
 
-    except Exception as e:
-        logger.error(f"Error in vector_rag_tool: {e!s}")
-        raise
+
+vector_rag_tool = make_vector_rag_tool()

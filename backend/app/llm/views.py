@@ -6,6 +6,7 @@ from urllib.error import URLError
 from urllib.request import Request
 from urllib.request import urlopen
 
+from django.db import transaction
 from django.http import StreamingHttpResponse
 
 from rest_framework import status
@@ -344,6 +345,13 @@ class CreateUploadURLView(APIView):
         )
 
 
+def _get_user_document(request, document_id: int) -> Document | None:
+    try:
+        return Document.objects.get(pk=document_id, user=request.user)
+    except Document.DoesNotExist:
+        return None
+
+
 class CompleteUploadView(APIView):
     """
     Confirm upload and start async processing.
@@ -362,9 +370,8 @@ class CompleteUploadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, document_id: int):
-        try:
-            document = Document.objects.get(pk=document_id)
-        except Document.DoesNotExist:
+        document = _get_user_document(request, document_id)
+        if document is None:
             return Response(
                 {"error": "Document not found"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -394,13 +401,6 @@ class CompleteUploadView(APIView):
         )
 
 
-def _get_user_document(request, document_id: int) -> Document | None:
-    try:
-        return Document.objects.get(pk=document_id, user=request.user)
-    except Document.DoesNotExist:
-        return None
-
-
 class DocumentDetailView(APIView):
     """Poll the processing status of a document."""
 
@@ -426,29 +426,6 @@ class GenerateEvalExamplesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, document_id: int):
-        document = _get_user_document(request, document_id)
-        if document is None:
-            return Response(
-                {"error": "Document not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if document.status != Document.Status.PROCESSED:
-            return Response(
-                {"error": "Document must be processed before generating eval examples."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if document.eval_generation_status == "processing":
-            return Response(
-                {
-                    "document_id": str(document.id),
-                    "eval_generation_status": document.eval_generation_status,
-                    "message": "Eval example generation is already in progress.",
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
         serializer = GenerateEvalExamplesSerializer(data=request.data or {})
         if not serializer.is_valid():
             return Response(
@@ -456,17 +433,65 @@ class GenerateEvalExamplesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        document.eval_generation_status = "processing"
-        document.save(update_fields=["eval_generation_status", "updated_at"])
+        with transaction.atomic():
+            try:
+                document = (
+                    Document.objects.select_for_update().get(
+                        pk=document_id,
+                        user=request.user,
+                    )
+                )
+            except Document.DoesNotExist:
+                return Response(
+                    {"error": "Document not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        generate_eval_examples.delay(
-            document.id,
-            sync_langsmith=serializer.validated_data["sync_langsmith"],
-        )
+            if document.status != Document.Status.PROCESSED:
+                return Response(
+                    {
+                        "error": "Document must be processed before generating eval examples.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if document.eval_generation_status == "processing":
+                return Response(
+                    {
+                        "document_id": str(document.id),
+                        "eval_generation_status": document.eval_generation_status,
+                        "message": "Eval example generation is already in progress.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            previous_status = document.eval_generation_status
+            document.eval_generation_status = "processing"
+            document.save(update_fields=["eval_generation_status", "updated_at"])
+            claimed_document_id = document.id
+
+        sync_langsmith = serializer.validated_data["sync_langsmith"]
+        try:
+            generate_eval_examples.delay(
+                claimed_document_id,
+                sync_langsmith=sync_langsmith,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to queue eval generation for document %s",
+                claimed_document_id,
+            )
+            Document.objects.filter(pk=claimed_document_id).update(
+                eval_generation_status=previous_status,
+            )
+            return Response(
+                {"error": "Failed to queue eval example generation."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             {
-                "document_id": str(document.id),
+                "document_id": str(claimed_document_id),
                 "eval_generation_status": "processing",
                 "message": "Generating eval examples.",
             },

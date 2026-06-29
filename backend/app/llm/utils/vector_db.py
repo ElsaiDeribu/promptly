@@ -7,6 +7,9 @@ from langchain_qdrant import QdrantVectorStore
 from langchain_qdrant import RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance
+from qdrant_client.http.models import FieldCondition
+from qdrant_client.http.models import Filter
+from qdrant_client.http.models import MatchValue
 from qdrant_client.http.models import SparseIndexParams
 from qdrant_client.http.models import SparseVectorParams
 from qdrant_client.http.models import VectorParams
@@ -120,18 +123,41 @@ class VectorDBWrapper:
         )
         return [doc for _, doc in ranked[:k]]
 
-    def similarity_search(self, query: str, k: int = 4) -> list[Document]:
+    @staticmethod
+    def _document_filter(document_id: int) -> Filter:
+        return Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.document_id",
+                    match=MatchValue(value=document_id),
+                ),
+            ],
+        )
+
+    def similarity_search(
+        self,
+        query: str,
+        k: int = 4,
+        *,
+        document_id: int | None = None,
+    ) -> list[Document]:
         """Perform similarity search for a query
 
         Args:
             query: The search query
             k: Number of results to return
+            document_id: When set, restrict results to chunks from this document
 
         Returns:
             List of relevant documents
         """
         fetch_k = k * self.rerank_fetch_multiplier if self.enable_reranking else k
-        documents = self.vector_store.similarity_search(query, k=fetch_k)
+        qdrant_filter = self._document_filter(document_id) if document_id is not None else None
+        documents = self.vector_store.similarity_search(
+            query,
+            k=fetch_k,
+            filter=qdrant_filter,
+        )
 
         if self.enable_reranking:
             return self._rerank_documents(query, documents, k)
@@ -140,18 +166,7 @@ class VectorDBWrapper:
 
     def scroll_by_document_id(self, document_id: int, *, limit: int = 256) -> list[Document]:
         """Return indexed chunks for a document via Qdrant metadata filter."""
-        from qdrant_client.http.models import FieldCondition
-        from qdrant_client.http.models import Filter
-        from qdrant_client.http.models import MatchValue
-
-        scroll_filter = Filter(
-            must=[
-                FieldCondition(
-                    key="metadata.document_id",
-                    match=MatchValue(value=document_id),
-                ),
-            ],
-        )
+        scroll_filter = self._document_filter(document_id)
 
         documents: list[Document] = []
         offset = None

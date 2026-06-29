@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from ..tools.memory import make_upsert_memory_tool
-from ..tools.vector_rag import vector_rag_tool
+from ..tools.vector_rag import make_vector_rag_tool
 
 _BASE_PROMPT = (
     "You are a helpful assistant that answers questions about documents and "
@@ -24,7 +24,12 @@ _BASE_PROMPT = (
 _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
-def build_rag_agent(*, user_id: str, memory_context: str = ""):
+def build_rag_agent(
+    *,
+    user_id: str,
+    memory_context: str = "",
+    document_id: int | None = None,
+):
     """Build a ReAct agent with user-scoped memory tools and optional context."""
     prompt_parts = [_BASE_PROMPT]
     if memory_context:
@@ -35,6 +40,9 @@ def build_rag_agent(*, user_id: str, memory_context: str = ""):
 
     return create_react_agent(
         model=_llm,
-        tools=[vector_rag_tool, make_upsert_memory_tool(user_id)],
+        tools=[
+            make_vector_rag_tool(document_id=document_id),
+            make_upsert_memory_tool(user_id),
+        ],
         prompt=system_prompt,
     )
