@@ -14,7 +14,8 @@ _TOOL_DESCRIPTION = """Retrieve relevant context from the vector store for a giv
 
 Use this tool to fetch document context before answering questions that require
 information from ingested documents. Returns the retrieved text chunks and image
-data so the agent can generate a grounded answer.
+data so the agent can generate a grounded answer. Each chunk includes provenance
+metadata (page_no, headings, captions, content_type) and image_url when applicable.
 
 Args:
     question: The user question to retrieve context for.

@@ -15,8 +15,8 @@ from langchain_openai import ChatOpenAI
 
 from app.llm.models import Document
 from app.llm.services.multimodal_rag.rag_pipeline import create_processing_state
+from app.llm.services.multimodal_rag.rag_pipeline import describe_image_chunks
 from app.llm.services.multimodal_rag.rag_pipeline import pre_process_pdf
-from app.llm.services.multimodal_rag.rag_pipeline import summarize_content
 from app.llm.utils.s3 import S3Wrapper
 from app.llm.utils.vector_db import VectorDBWrapper
 
@@ -94,20 +94,29 @@ def _passages_from_pdf_resummarize(document: Document) -> list[dict[str, Any]]:
             original_filename=document.original_filename,
         )
         state = pre_process_pdf(state)
-        state = summarize_content(state)
+        image_chunks = [c for c in state["chunks"] if c.content_type == "image"]
+        image_summaries = describe_image_chunks(image_chunks)
 
         passages: list[dict[str, Any]] = []
-        for content_type in ("text", "tables", "images"):
-            for index, summary in enumerate(state["summaries"].get(content_type, [])):
-                if not summary or not summary.strip():
-                    continue
+        for index, chunk in enumerate(state["chunks"]):
+            if chunk.content_type in ("text", "table") and chunk.text.strip():
                 passages.append(
                     {
-                        "source_id": f"{content_type}-{index}",
-                        "content": summary.strip()[:MAX_PASSAGE_CHARS],
-                        "content_type": content_type,
+                        "source_id": f"{chunk.content_type}-{index}",
+                        "content": chunk.text.strip()[:MAX_PASSAGE_CHARS],
+                        "content_type": chunk.content_type,
                     },
                 )
+        for index, summary in enumerate(image_summaries):
+            if not summary or not summary.strip():
+                continue
+            passages.append(
+                {
+                    "source_id": f"image-{index}",
+                    "content": summary.strip()[:MAX_PASSAGE_CHARS],
+                    "content_type": "image",
+                },
+            )
         return passages[:MAX_PASSAGES]
     finally:
         if temp_path and os.path.exists(temp_path):

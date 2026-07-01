@@ -137,20 +137,26 @@ This split — presigned upload to storage, ingestion on a Redis-backed worker �
 
 ### PDF chunking strategy
 
-Chunking is handled by [Unstructured](https://docs.unstructured.io/) in `backend/app/llm/utils/pdf_processor.py`:
+Chunking is handled by [Docling](https://github.com/docling-project/docling) in `backend/app/llm/utils/pdf_processor.py`:
 
-| Parameter | Value | Purpose |
+| Component | Value | Purpose |
 | --------- | ----- | ------- |
-| `strategy` | `"hi_res"` | Required for table structure inference |
-| `infer_table_structure` | `True` | Structured table extraction |
-| `chunking_strategy` | `"by_title"` | Section-aware chunks grouped by document headings |
-| `max_characters` | `10000` | Maximum chunk size (Unstructured default is 500) |
-| `combine_text_under_n_chars` | `2000` | Merge small text blocks under this threshold |
-| `new_after_n_chars` | `6000` | Soft split threshold for new chunks |
-| `extract_image_block_types` | `["Image"]` | Extract image blocks from the PDF |
-| `extract_image_block_to_payload` | `True` | Inline base64 in element metadata (no disk writes) |
+| **Parser** | `DocumentConverter` + `PdfPipelineOptions` | Structure-aware PDF conversion |
+| **Chunker** | `HybridChunker` | Hierarchical chunking with token-aware split/merge |
+| **Tokenizer** | `OpenAITokenizer` (`cl100k_base`, 512 tokens) | Aligns chunk sizes with OpenAI embedding models |
+| **Pictures** | `generate_picture_images=True` | Extract figure images for multimodal summarisation |
 
-Post-chunk helpers walk `CompositeElement.metadata.orig_elements` to pull out `Table` text and `Image` base64 payloads for summarisation and indexing.
+Each chunk is a `ProcessedChunk` with provenance metadata stored in Qdrant:
+
+| Metadata field | Purpose |
+| -------------- | ------- |
+| `page_no` | Page citation |
+| `headings` | Section breadcrumb |
+| `captions` | Table/figure captions |
+| `element_label` | Element type (`paragraph`, `table`, `picture`, …) |
+| `doc_item_ref` | Stable reference back to the Docling document node |
+| `bbox` | Bounding box JSON for future PDF highlighting |
+| `image_key` / `image_url` | MinIO object key at index time; presigned URL at retrieval |
 
 ### Hybrid vector retrieval & reranking
 
@@ -237,7 +243,7 @@ promptly/
 │   │       │   └── multimodal_rag/
 │   │       │       └── rag_pipeline.py   # LangGraph ingestion (pre-process, summarise, index)
 │   │       ├── utils/
-│   │       │   ├── pdf_processor.py      # Unstructured PDF parsing and chunking
+│   │       │   ├── pdf_processor.py      # Docling PDF parsing and hybrid chunking
 │   │       │   ├── s3.py                 # MinIO/S3 upload + presigned URL helpers
 │   │       │   └── vector_db.py          # Qdrant hybrid search + cross-encoder reranking
 │   │       ├── evals/

@@ -38,7 +38,7 @@ class VectorDBWrapper:
         self,
         embeddings: OpenAIEmbeddings | None = None,
         collection_name: str = "multi_modal_rag",
-        enable_reranking: bool = True,
+        enable_reranking: bool = False,
         rerank_model: str = DEFAULT_RERANK_MODEL,
         rerank_fetch_multiplier: int = 4,
     ):
