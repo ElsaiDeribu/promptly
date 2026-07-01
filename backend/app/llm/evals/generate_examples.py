@@ -94,7 +94,10 @@ def _passages_from_pdf_resummarize(document: Document) -> list[dict[str, Any]]:
             original_filename=document.original_filename,
         )
         state = pre_process_pdf(state)
-        image_chunks = [c for c in state["chunks"] if c.content_type == "image"]
+        image_chunks = [
+            c for c in state["chunks"]
+            if c.content_type == "image" and c.image_bytes
+        ]
         image_summaries = describe_image_chunks(image_chunks)
 
         passages: list[dict[str, Any]] = []

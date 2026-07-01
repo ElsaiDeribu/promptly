@@ -59,7 +59,6 @@ def create_processing_state(
         "file_path": file_path,
         "document_id": document_id,
         "original_filename": original_filename or "",
-        "chunks": [],
         "vector_db": VectorDBWrapper(),
         "object_store": S3Wrapper(),
     }
@@ -70,6 +69,10 @@ def _chunks_by_type(
     content_type: str,
 ) -> list[ProcessedChunk]:
     return [chunk for chunk in chunks if chunk.content_type == content_type]
+
+
+def _chunks_with_image_bytes(chunks: list[ProcessedChunk]) -> list[ProcessedChunk]:
+    return [chunk for chunk in chunks if chunk.image_bytes]
 
 
 def _chunk_metadata(
@@ -90,13 +93,29 @@ def _chunk_metadata(
     return metadata
 
 
-def describe_image_chunks(image_chunks: list[ProcessedChunk]) -> list[str]:
-    """Generate vision descriptions for image chunks."""
-    images_b64 = [
-        b64encode(chunk.image_bytes).decode()
-        for chunk in image_chunks
-        if chunk.image_bytes
+def _chunks_to_documents(
+    state: ProcessingState,
+    chunks: list[ProcessedChunk],
+    content_type: str,
+) -> list[Document]:
+    return [
+        Document(
+            page_content=chunk.text,
+            metadata=_chunk_metadata(
+                state,
+                str(uuid4()),
+                provenance=chunk.provenance,
+                content_type=content_type,
+            ),
+        )
+        for chunk in chunks
+        if chunk.text.strip()
     ]
+
+
+def describe_image_chunks(image_chunks: list[ProcessedChunk]) -> list[str]:
+    """Generate vision descriptions for image chunks that include image_bytes."""
+    images_b64 = [b64encode(chunk.image_bytes).decode() for chunk in image_chunks]
     if not images_b64:
         return []
 
@@ -132,9 +151,6 @@ def pre_process_pdf(state: ProcessingState) -> ProcessingState:
     """Parse the PDF file (already stored in S3 via presigned upload)."""
     try:
         state["chunks"] = process_pdf(state["file_path"])
-        if "vector_db" not in state:
-            state["vector_db"] = VectorDBWrapper()
-
         return state
 
     except Exception as e:
@@ -149,67 +165,31 @@ def index_chunks(state: ProcessingState) -> ProcessingState:
         chunks = state["chunks"]
         text_chunks = _chunks_by_type(chunks, "text")
         table_chunks = _chunks_by_type(chunks, "table")
-        image_chunks = _chunks_by_type(chunks, "image")
-
-        image_chunk_indexes = [
-            index
-            for index, chunk in enumerate(image_chunks)
-            if chunk.image_bytes
-        ]
-        image_summaries = describe_image_chunks(image_chunks)
+        image_chunks_with_bytes = _chunks_with_image_bytes(
+            _chunks_by_type(chunks, "image"),
+        )
+        image_summaries = describe_image_chunks(image_chunks_with_bytes)
 
         documents: list[Document] = []
 
-        text_docs = [
-            Document(
-                page_content=chunk.text,
-                metadata=_chunk_metadata(
-                    state,
-                    str(uuid4()),
-                    provenance=chunk.provenance,
-                    content_type="text",
-                ),
-            )
-            for chunk in text_chunks
-            if chunk.text.strip()
-        ]
-        table_docs = [
-            Document(
-                page_content=chunk.text,
-                metadata=_chunk_metadata(
-                    state,
-                    str(uuid4()),
-                    provenance=chunk.provenance,
-                    content_type="table",
-                ),
-            )
-            for chunk in table_chunks
-            if chunk.text.strip()
-        ]
+        text_docs = _chunks_to_documents(state, text_chunks, "text")
+        table_docs = _chunks_to_documents(state, table_chunks, "table")
 
-        clean_image_summaries = [
-            (i, s) for i, s in enumerate(image_summaries) if s and s.strip()
-        ]
-
-        logger.info("Text chunks: %s", len(text_docs))
-        logger.info("Table chunks: %s", len(table_docs))
-        logger.info("Image summaries: %s", len(clean_image_summaries))
-
-        documents.extend(text_docs)
-        documents.extend(table_docs)
-
-        for summary_index, summary in clean_image_summaries:
-            chunk_index = image_chunk_indexes[summary_index]
-            chunk = image_chunks[chunk_index]
-            image_bytes = chunk.image_bytes
-            if image_bytes is None:
+        image_doc_count = 0
+        for chunk, summary in zip(
+            image_chunks_with_bytes,
+            image_summaries,
+            strict=True,
+        ):
+            if not summary or not summary.strip():
                 continue
 
+            image_doc_count += 1
             img_id = str(uuid4())
             img_key = f"images/{img_id}.jpg"
 
             state["object_store"].put_file(
-                data=image_bytes,
+                data=chunk.image_bytes,
                 object_name=img_key,
                 content_type="image/jpeg",
             )
@@ -226,6 +206,13 @@ def index_chunks(state: ProcessingState) -> ProcessingState:
                     ),
                 ),
             )
+
+        logger.info("Text chunks: %s", len(text_docs))
+        logger.info("Table chunks: %s", len(table_docs))
+        logger.info("Image summaries: %s", image_doc_count)
+
+        documents.extend(text_docs)
+        documents.extend(table_docs)
 
         if documents:
             vector_db.vector_store.add_documents(documents)
