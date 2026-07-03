@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -17,11 +18,14 @@ import { useRagChat } from './use-rag-chat';
 import DocumentUploader from './document-uploader';
 import { useUserMemories } from './use-user-memories';
 import { useDocumentUpload } from './use-document-upload';
+import LayoutViewerDialog from './layout-viewer';
+import { paths } from '@/routes/paths';
 
 // ----------------------------------------------------------------------
 
 export default function MultimodalRagView() {
   const [draft, setDraft] = useState('');
+  const navigate = useNavigate();
 
   const memories = useUserMemories();
   const chat = useRagChat({ onComplete: memories.refresh });
@@ -51,6 +55,10 @@ export default function MultimodalRagView() {
   function handleClear() {
     chat.clearChat();
     upload.resetFeedback();
+  }
+
+  function handleStudy(documentId: string) {
+    navigate(paths.dashboard.studyCompanion(documentId));
   }
 
   return (
@@ -89,6 +97,9 @@ export default function MultimodalRagView() {
                 onBrowse={upload.openFilePicker}
                 onUploadAndProcess={handleUploadAndProcess}
                 onGenerateEvalExamples={upload.generateEvalExamples}
+                onViewLayout={upload.onViewLayout}
+                onStudy={handleStudy}
+                viewingLayoutDocumentId={upload.viewingLayoutDocumentId}
               />
             </div>
 
@@ -124,6 +135,19 @@ export default function MultimodalRagView() {
           </div>
         </div>
       </Card>
+
+      <LayoutViewerDialog
+        open={upload.layoutDialogOpen}
+        onOpenChange={(open) => {
+          upload.setLayoutDialogOpen(open);
+          if (!open) upload.layout.reset();
+        }}
+        filename={upload.layout.activeFilename}
+        layout={upload.layout.layout}
+        loading={upload.layout.loading}
+        error={upload.layout.error}
+        onRegenerate={upload.layout.regenerateLayout}
+      />
     </div>
   );
 }

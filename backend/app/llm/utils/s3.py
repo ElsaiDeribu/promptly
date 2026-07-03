@@ -152,6 +152,18 @@ class S3Wrapper:
             print(f"Error creating bucket: {e}")
             return False
 
+    def delete_file(self, object_name: str, bucket: str | None = None) -> bool:
+        """Delete an object from the bucket."""
+        if bucket is None:
+            bucket = self.bucket_name
+
+        try:
+            self.client.delete_object(Bucket=bucket, Key=object_name)
+            return True
+        except ClientError as e:
+            print(f"Error deleting file: {e}")
+            return False
+
     def object_exists(self, object_name: str, bucket: str | None = None) -> bool:
         """Return True if the object exists in the bucket."""
         if bucket is None:

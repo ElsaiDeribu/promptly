@@ -48,6 +48,32 @@ class Document(models.Model):
         default="none",
         db_index=True,
     )
+    layout_generation_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("none", "None"),
+            ("processing", "Processing"),
+            ("completed", "Completed"),
+            ("failed", "Failed"),
+        ],
+        default="none",
+        db_index=True,
+    )
+    layout_s3_key = models.CharField(max_length=1024, blank=True, default="")
+    layout_error_message = models.TextField(blank=True, default="")
+    outline_generation_status = models.CharField(
+        max_length=16,
+        choices=[
+            ("none", "None"),
+            ("processing", "Processing"),
+            ("completed", "Completed"),
+            ("failed", "Failed"),
+        ],
+        default="none",
+        db_index=True,
+    )
+    outline_s3_key = models.CharField(max_length=1024, blank=True, default="")
+    outline_error_message = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -109,3 +135,37 @@ class EvalExample(models.Model):
     def __str__(self) -> str:
         question = (self.inputs or {}).get("question", "")
         return f"EvalExample({self.document_id}): {question[:60]}"
+
+
+class StudySectionProgress(models.Model):
+    """Per-user progress and cached notes for a study outline section."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="study_section_progress",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="study_section_progress",
+    )
+    section_id = models.CharField(max_length=128)
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "document", "section_id"],
+                name="unique_study_section_progress",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        status = "done" if self.completed else "pending"
+        return f"StudySectionProgress({self.document_id}/{self.section_id}): {status}"

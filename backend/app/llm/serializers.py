@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import Document
+from .models import StudySectionProgress
 
 
 class ChatMessageSerializer(serializers.Serializer):
@@ -22,6 +23,8 @@ class RAGQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Sliding window of conversation messages",
     )
+    document_id = serializers.IntegerField(required=False, allow_null=True)
+    section_context = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
         messages = attrs.get("messages")
@@ -71,6 +74,8 @@ class DocumentSerializer(serializers.ModelSerializer):
             "error_message",
             "eval_generation_status",
             "eval_example_count",
+            "layout_generation_status",
+            "outline_generation_status",
             "created_at",
             "updated_at",
         ]
@@ -89,3 +94,50 @@ class EvalExamplesStatusSerializer(serializers.Serializer):
     eval_generation_status = serializers.CharField()
     eval_example_count = serializers.IntegerField()
     examples = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+class DocumentLayoutStatusSerializer(serializers.Serializer):
+    document_id = serializers.IntegerField()
+    layout_generation_status = serializers.CharField()
+    layout_error_message = serializers.CharField(required=False, allow_blank=True)
+    layout = serializers.DictField(required=False)
+
+
+class GenerateDocumentLayoutSerializer(serializers.Serializer):
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class GenerateStudyOutlineSerializer(serializers.Serializer):
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class ReviseStudyOutlineSerializer(serializers.Serializer):
+    instruction = serializers.CharField(min_length=1, max_length=4000)
+
+
+class StudyOutlineStatusSerializer(serializers.Serializer):
+    document_id = serializers.IntegerField()
+    outline_generation_status = serializers.CharField()
+    outline_error_message = serializers.CharField(required=False, allow_blank=True)
+    outline = serializers.DictField(required=False)
+
+
+class StudySectionProgressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudySectionProgress
+        fields = ["section_id", "completed", "completed_at", "notes"]
+        read_only_fields = fields
+
+
+class UpdateStudyProgressSerializer(serializers.Serializer):
+    section_id = serializers.CharField()
+    completed = serializers.BooleanField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
+class GenerateSectionNotesSerializer(serializers.Serializer):
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class GenerateSectionQuestionsSerializer(serializers.Serializer):
+    count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)

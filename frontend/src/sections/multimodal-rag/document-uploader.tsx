@@ -37,11 +37,16 @@ type DocumentUploaderProps = {
   hasSelectedFile: boolean;
   successMessage: string;
   documents: TrackedDocument[];
-  fileInputRef: React.RefObject<HTMLInputElement>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
   onSelectFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onBrowse: () => void;
   onUploadAndProcess: () => void;
   onGenerateEvalExamples: (documentId: string) => void;
+  onViewLayout: (documentId: string, filename: string) => void;
+  onStudy?: (documentId: string) => void;
+  viewingLayoutDocumentId?: string | null;
+  /** Hide inline document list (used when a separate list is shown). */
+  compactList?: boolean;
 };
 
 export default function DocumentUploader({
@@ -54,6 +59,10 @@ export default function DocumentUploader({
   onBrowse,
   onUploadAndProcess,
   onGenerateEvalExamples,
+  onViewLayout,
+  onStudy,
+  viewingLayoutDocumentId,
+  compactList = false,
 }: DocumentUploaderProps) {
   return (
     <div className="rounded-lg border bg-muted/30 p-2">
@@ -96,7 +105,7 @@ export default function DocumentUploader({
         </div>
       )}
 
-      {documents.length > 0 && (
+      {documents.length > 0 && !compactList && (
         <div className="mt-3">
           <div className="mb-1 text-xs font-medium text-muted-foreground">Documents:</div>
           <div className="flex flex-col gap-1.5">
@@ -124,18 +133,49 @@ export default function DocumentUploader({
                   </div>
                 </div>
 
-                {doc.status === 'processed' ? (
-                  <LoadingButton
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    loading={doc.generatingEval}
-                    disabled={doc.generatingEval || uploading}
-                    onClick={() => onGenerateEvalExamples(doc.id)}
-                    className="mt-2 h-7 w-full text-xs"
-                  >
-                    {doc.evalExampleCount ? 'Regenerate eval examples' : 'Generate eval examples'}
-                  </LoadingButton>
+                {doc.status !== 'pending' && doc.status !== 'failed' ? (
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    <LoadingButton
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      loading={viewingLayoutDocumentId === doc.id}
+                      disabled={Boolean(viewingLayoutDocumentId) || uploading}
+                      onClick={() => onViewLayout(doc.id, doc.filename)}
+                      className="h-7 w-full text-xs"
+                    >
+                      {doc.layoutGenerationStatus === 'completed' ? 'View layout' : 'Get layout'}
+                    </LoadingButton>
+                    {doc.status === 'processed' ? (
+                      <>
+                        {onStudy ? (
+                          <LoadingButton
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={uploading}
+                            onClick={() => onStudy(doc.id)}
+                            className="h-7 w-full text-xs"
+                          >
+                            Study
+                          </LoadingButton>
+                        ) : null}
+                        <LoadingButton
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        loading={doc.generatingEval}
+                        disabled={doc.generatingEval || uploading}
+                        onClick={() => onGenerateEvalExamples(doc.id)}
+                        className="h-7 w-full text-xs"
+                      >
+                        {doc.evalExampleCount
+                          ? 'Regenerate eval examples'
+                          : 'Generate eval examples'}
+                      </LoadingButton>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ))}

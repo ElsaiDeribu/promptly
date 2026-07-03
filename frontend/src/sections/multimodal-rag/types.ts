@@ -20,6 +20,10 @@ export type CompleteUploadResponse = {
   message: string;
 };
 
+export type LayoutGenerationStatus = 'none' | 'processing' | 'completed' | 'failed';
+
+export type OutlineGenerationStatus = 'none' | 'processing' | 'completed' | 'failed';
+
 export type DocumentDetailResponse = {
   id: number;
   original_filename: string;
@@ -28,6 +32,8 @@ export type DocumentDetailResponse = {
   error_message: string;
   eval_generation_status: EvalGenerationStatus;
   eval_example_count: number;
+  layout_generation_status: LayoutGenerationStatus;
+  outline_generation_status: OutlineGenerationStatus;
   created_at: string;
   updated_at: string;
 };
@@ -54,6 +60,53 @@ export type TrackedDocument = {
   evalGenerationStatus?: EvalGenerationStatus;
   evalExampleCount?: number;
   generatingEval?: boolean;
+  layoutGenerationStatus?: LayoutGenerationStatus;
+  generatingLayout?: boolean;
+  outlineGenerationStatus?: OutlineGenerationStatus;
+  createdAt?: string;
+};
+
+export type LayoutBBox = {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+};
+
+export type LayoutElement = {
+  id: string;
+  label: string;
+  text: string;
+  bbox: LayoutBBox;
+};
+
+export type LayoutPage = {
+  page_no: number;
+  width: number;
+  height: number;
+  elements: LayoutElement[];
+  image_base64?: string | null;
+};
+
+/** Layout payload returned by the backend. */
+export type DocumentLayout = {
+  filename: string;
+  page_count: number;
+  pages: LayoutPage[];
+};
+
+export type DocumentLayoutResponse = {
+  document_id: number;
+  layout_generation_status: LayoutGenerationStatus;
+  layout_error_message?: string;
+  layout?: DocumentLayout;
+};
+
+export type GenerateDocumentLayoutResponse = {
+  document_id: string;
+  layout_generation_status: LayoutGenerationStatus;
+  message?: string;
+  layout?: DocumentLayout;
 };
 
 export type UserMemory = {

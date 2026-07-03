@@ -20,16 +20,28 @@ from langchain_core.messages import HumanMessage
 
 from .agents.rag_agent import build_rag_agent
 from .models import Document
+from .models import StudySectionProgress
 from .serializers import CreateUploadURLSerializer
+from .serializers import DocumentLayoutStatusSerializer
 from .serializers import DocumentSerializer
 from .serializers import EvalExamplesStatusSerializer
+from .serializers import GenerateDocumentLayoutSerializer
 from .serializers import GenerateEvalExamplesSerializer
+from .serializers import GenerateSectionNotesSerializer
+from .serializers import GenerateSectionQuestionsSerializer
+from .serializers import GenerateStudyOutlineSerializer
 from .serializers import RAGQuerySerializer
+from .serializers import ReviseStudyOutlineSerializer
+from .serializers import StudyOutlineStatusSerializer
+from .serializers import StudySectionProgressSerializer
+from .serializers import UpdateStudyProgressSerializer
 from .services.memory import delete_memory
 from .services.memory import format_memories_for_prompt
 from .services.memory import list_memories
 from .services.memory import search_memories
+from .tasks import extract_document_layout_task
 from .tasks import generate_eval_examples
+from .tasks import generate_study_outline_task
 from .tasks import process_document
 from .utils.s3 import S3Wrapper
 
@@ -173,6 +185,8 @@ async def _rag_stream_generator(
     *,
     user_id: str,
     memory_context: str = "",
+    document_id: int | None = None,
+    section_context: str = "",
 ):
     """Yield SSE events with streamed tokens from the RAG agent.
 
@@ -181,7 +195,12 @@ async def _rag_stream_generator(
     by Django's ASGI handler for ``StreamingHttpResponse``.
     """
     try:
-        agent = build_rag_agent(user_id=user_id, memory_context=memory_context)
+        agent = build_rag_agent(
+            user_id=user_id,
+            memory_context=memory_context,
+            document_id=document_id,
+            section_context=section_context,
+        )
 
         async for event in agent.astream_events(
             {"messages": _to_langchain_messages(messages)},
@@ -228,6 +247,8 @@ class RAGQueryStreamView(APIView):
             )
 
         messages = serializer.validated_data["messages"]
+        document_id = serializer.validated_data.get("document_id")
+        section_context = serializer.validated_data.get("section_context") or ""
         user_id = str(request.user.id)
         memories = search_memories(
             user_id=user_id,
@@ -241,6 +262,8 @@ class RAGQueryStreamView(APIView):
                 messages,
                 user_id=user_id,
                 memory_context=memory_context,
+                document_id=document_id,
+                section_context=section_context,
             ),
             content_type="text/event-stream",
         )
@@ -352,6 +375,23 @@ def _get_user_document(request, document_id: int) -> Document | None:
         return None
 
 
+def _delete_document_and_assets(document: Document) -> None:
+    """Delete stored files, vectors, and the document record."""
+    s3 = S3Wrapper()
+    for key in (document.s3_key, document.layout_s3_key, document.outline_s3_key):
+        if key:
+            s3.delete_file(key)
+
+    try:
+        from .utils.vector_db import VectorDBWrapper
+
+        VectorDBWrapper().delete_by_document_id(document.id)
+    except Exception:
+        logger.exception("Failed to delete vectors for document %s", document.id)
+
+    document.delete()
+
+
 class CompleteUploadView(APIView):
     """
     Confirm upload and start async processing.
@@ -402,7 +442,7 @@ class CompleteUploadView(APIView):
 
 
 class DocumentDetailView(APIView):
-    """Poll the processing status of a document."""
+    """Get or delete a document owned by the authenticated user."""
 
     permission_classes = [IsAuthenticated]
 
@@ -416,6 +456,30 @@ class DocumentDetailView(APIView):
 
         return Response(
             DocumentSerializer(document).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        _delete_document_and_assets(document)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DocumentListView(APIView):
+    """List documents uploaded by the authenticated user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        documents = Document.objects.filter(user=request.user).order_by("-created_at")
+        return Response(
+            DocumentSerializer(documents, many=True).data,
             status=status.HTTP_200_OK,
         )
 
@@ -529,5 +593,560 @@ class EvalExamplesStatusView(APIView):
 
         return Response(
             EvalExamplesStatusSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+def _load_layout_from_s3(document: Document) -> dict | None:
+    if not document.layout_s3_key:
+        return None
+
+    s3 = S3Wrapper()
+    raw = s3.get_file(document.layout_s3_key)
+    if raw is None:
+        return None
+
+    return json.loads(raw.decode("utf-8"))
+
+
+class DocumentLayoutView(APIView):
+    """Return layout extraction status and layout payload when available."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        payload = {
+            "document_id": document.id,
+            "layout_generation_status": document.layout_generation_status,
+            "layout_error_message": document.layout_error_message,
+        }
+
+        if document.layout_generation_status == "completed":
+            layout = _load_layout_from_s3(document)
+            if layout is not None:
+                payload["layout"] = layout
+
+        return Response(
+            DocumentLayoutStatusSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class GenerateDocumentLayoutView(APIView):
+    """Generate or return cached Docling layout for a document."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int):
+        serializer = GenerateDocumentLayoutSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        force = serializer.validated_data["force"]
+
+        with transaction.atomic():
+            try:
+                document = (
+                    Document.objects.select_for_update().get(
+                        pk=document_id,
+                        user=request.user,
+                    )
+                )
+            except Document.DoesNotExist:
+                return Response(
+                    {"error": "Document not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if document.status == Document.Status.PENDING:
+                return Response(
+                    {"error": "Document upload must be complete before extracting layout."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            s3 = S3Wrapper()
+            if not s3.object_exists(document.s3_key):
+                return Response(
+                    {"error": "File not found in storage."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if (
+                document.layout_generation_status == "completed"
+                and not force
+            ):
+                layout = _load_layout_from_s3(document)
+                payload = {
+                    "document_id": document.id,
+                    "layout_generation_status": document.layout_generation_status,
+                    "layout_error_message": document.layout_error_message,
+                }
+                if layout is not None:
+                    payload["layout"] = layout
+                return Response(
+                    DocumentLayoutStatusSerializer(payload).data,
+                    status=status.HTTP_200_OK,
+                )
+
+            if document.layout_generation_status == "processing":
+                return Response(
+                    {
+                        "document_id": str(document.id),
+                        "layout_generation_status": document.layout_generation_status,
+                        "message": "Layout extraction is already in progress.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            previous_status = document.layout_generation_status
+            document.layout_generation_status = "processing"
+            document.layout_error_message = ""
+            document.save(
+                update_fields=[
+                    "layout_generation_status",
+                    "layout_error_message",
+                    "updated_at",
+                ],
+            )
+            claimed_document_id = document.id
+
+        try:
+            extract_document_layout_task.delay(claimed_document_id)
+        except Exception:
+            logger.exception(
+                "Failed to queue layout extraction for document %s",
+                claimed_document_id,
+            )
+            Document.objects.filter(pk=claimed_document_id).update(
+                layout_generation_status=previous_status,
+            )
+            return Response(
+                {"error": "Failed to queue layout extraction."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {
+                "document_id": str(claimed_document_id),
+                "layout_generation_status": "processing",
+                "message": "Extracting document layout.",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+def _load_outline_from_s3(document: Document) -> dict | None:
+    if not document.outline_s3_key:
+        return None
+
+    s3 = S3Wrapper()
+    raw = s3.get_file(document.outline_s3_key)
+    if raw is None:
+        return None
+
+    return json.loads(raw.decode("utf-8"))
+
+
+def _find_section_in_outline(outline: dict, section_id: str) -> dict | None:
+    for section in outline.get("sections", []):
+        if section.get("id") == section_id:
+            return section
+    return None
+
+
+def _queue_study_outline(
+    document: Document,
+    *,
+    revision_instruction: str = "",
+) -> Response:
+    previous_status = document.outline_generation_status
+    document.outline_generation_status = "processing"
+    document.outline_error_message = ""
+    document.save(
+        update_fields=[
+            "outline_generation_status",
+            "outline_error_message",
+            "updated_at",
+        ],
+    )
+    claimed_document_id = document.id
+
+    try:
+        generate_study_outline_task.delay(
+            claimed_document_id,
+            revision_instruction=revision_instruction,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to queue study outline for document %s",
+            claimed_document_id,
+        )
+        Document.objects.filter(pk=claimed_document_id).update(
+            outline_generation_status=previous_status,
+        )
+        return Response(
+            {"error": "Failed to queue study outline generation."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    return Response(
+        {
+            "document_id": str(claimed_document_id),
+            "outline_generation_status": "processing",
+            "message": "Generating study outline.",
+        },
+        status=status.HTTP_202_ACCEPTED,
+    )
+
+
+class StudyOutlineView(APIView):
+    """Return study outline status and payload when available."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        payload = {
+            "document_id": document.id,
+            "outline_generation_status": document.outline_generation_status,
+            "outline_error_message": document.outline_error_message,
+        }
+
+        if document.outline_generation_status == "completed":
+            outline = _load_outline_from_s3(document)
+            if outline is not None:
+                payload["outline"] = outline
+
+        return Response(
+            StudyOutlineStatusSerializer(payload).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class GenerateStudyOutlineView(APIView):
+    """Generate or return cached study outline for a document."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int):
+        serializer = GenerateStudyOutlineSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        force = serializer.validated_data["force"]
+
+        with transaction.atomic():
+            try:
+                document = (
+                    Document.objects.select_for_update().get(
+                        pk=document_id,
+                        user=request.user,
+                    )
+                )
+            except Document.DoesNotExist:
+                return Response(
+                    {"error": "Document not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if document.layout_generation_status != "completed":
+                return Response(
+                    {"error": "Document layout must be extracted before generating study outline."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if (
+                document.outline_generation_status == "completed"
+                and not force
+            ):
+                outline = _load_outline_from_s3(document)
+                payload = {
+                    "document_id": document.id,
+                    "outline_generation_status": document.outline_generation_status,
+                    "outline_error_message": document.outline_error_message,
+                }
+                if outline is not None:
+                    payload["outline"] = outline
+                return Response(
+                    StudyOutlineStatusSerializer(payload).data,
+                    status=status.HTTP_200_OK,
+                )
+
+            if document.outline_generation_status == "processing":
+                return Response(
+                    {
+                        "document_id": str(document.id),
+                        "outline_generation_status": document.outline_generation_status,
+                        "message": "Study outline generation is already in progress.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            return _queue_study_outline(document)
+
+
+class ReviseStudyOutlineView(APIView):
+    """Revise an existing study outline based on user feedback."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int):
+        serializer = ReviseStudyOutlineSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instruction = serializer.validated_data["instruction"]
+
+        with transaction.atomic():
+            try:
+                document = (
+                    Document.objects.select_for_update().get(
+                        pk=document_id,
+                        user=request.user,
+                    )
+                )
+            except Document.DoesNotExist:
+                return Response(
+                    {"error": "Document not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if document.outline_generation_status != "completed":
+                return Response(
+                    {"error": "Study outline must exist before revising."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if document.outline_generation_status == "processing":
+                return Response(
+                    {
+                        "document_id": str(document.id),
+                        "outline_generation_status": "processing",
+                        "message": "Study outline revision is already in progress.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            return _queue_study_outline(
+                document,
+                revision_instruction=instruction,
+            )
+
+
+class StudyProgressView(APIView):
+    """List or update per-section study progress."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_id: int):
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        progress = StudySectionProgress.objects.filter(
+            user=request.user,
+            document=document,
+        )
+        return Response(
+            StudySectionProgressSerializer(progress, many=True).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def put(self, request, document_id: int):
+        serializer = UpdateStudyProgressSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from django.utils import timezone
+
+        section_id = serializer.validated_data["section_id"]
+        defaults: dict = {}
+        if "completed" in serializer.validated_data:
+            completed = serializer.validated_data["completed"]
+            defaults["completed"] = completed
+            defaults["completed_at"] = timezone.now() if completed else None
+        if "notes" in serializer.validated_data:
+            defaults["notes"] = serializer.validated_data["notes"]
+
+        progress, _ = StudySectionProgress.objects.update_or_create(
+            user=request.user,
+            document=document,
+            section_id=section_id,
+            defaults=defaults,
+        )
+        return Response(
+            StudySectionProgressSerializer(progress).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class SectionNotesView(APIView):
+    """Generate or return cached study notes for a section."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int, section_id: str):
+        serializer = GenerateSectionNotesSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        force = serializer.validated_data["force"]
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        outline = _load_outline_from_s3(document)
+        if outline is None:
+            return Response(
+                {"error": "Study outline not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        section = _find_section_in_outline(outline, section_id)
+        if section is None:
+            return Response(
+                {"error": "Section not found in outline."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from .services.study_outline.outline_generator import generate_section_notes
+        from .services.study_outline.outline_generator import section_study_scope
+
+        scoped_section = section_study_scope(section, outline)
+
+        progress = StudySectionProgress.objects.filter(
+            user=request.user,
+            document=document,
+            section_id=section_id,
+        ).first()
+
+        if progress and progress.notes and not force:
+            return Response(
+                {"section_id": section_id, "notes": progress.notes},
+                status=status.HTTP_200_OK,
+            )
+
+        layout = _load_layout_from_s3(document)
+        if layout is None:
+            return Response(
+                {"error": "Document layout not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notes = generate_section_notes(
+            layout,
+            scoped_section,
+            filename=document.original_filename,
+        )
+
+        StudySectionProgress.objects.update_or_create(
+            user=request.user,
+            document=document,
+            section_id=section_id,
+            defaults={"notes": notes},
+        )
+
+        return Response(
+            {"section_id": section_id, "notes": notes},
+            status=status.HTTP_200_OK,
+        )
+
+
+class SectionQuestionsView(APIView):
+    """Generate practice questions for a study section."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, document_id: int, section_id: str):
+        serializer = GenerateSectionQuestionsSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return Response(
+                {"error": "Invalid request", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        document = _get_user_document(request, document_id)
+        if document is None:
+            return Response(
+                {"error": "Document not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        outline = _load_outline_from_s3(document)
+        if outline is None:
+            return Response(
+                {"error": "Study outline not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        section = _find_section_in_outline(outline, section_id)
+        if section is None:
+            return Response(
+                {"error": "Section not found in outline."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        layout = _load_layout_from_s3(document)
+        if layout is None:
+            return Response(
+                {"error": "Document layout not available."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .services.study_outline.outline_generator import generate_section_questions
+        from .services.study_outline.outline_generator import section_study_scope
+
+        scoped_section = section_study_scope(section, outline)
+
+        questions = generate_section_questions(
+            layout,
+            scoped_section,
+            filename=document.original_filename,
+            count=serializer.validated_data["count"],
+        )
+
+        return Response(
+            {"section_id": section_id, "questions": questions},
             status=status.HTTP_200_OK,
         )

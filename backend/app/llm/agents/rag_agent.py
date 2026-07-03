@@ -35,9 +35,20 @@ def build_rag_agent(
     user_id: str,
     memory_context: str = "",
     document_id: int | None = None,
+    section_context: str = "",
 ):
     """Build a ReAct agent with user-scoped memory tools and optional context."""
     prompt_parts = [_BASE_PROMPT]
+    if document_id is not None:
+        prompt_parts.append(
+            f"\n\nScope: answer only from document_id={document_id}. "
+            "Always pass this scope when calling vector_rag_tool.",
+        )
+    if section_context:
+        prompt_parts.append(
+            f"\n\nCurrent study section context:\n{section_context}\n"
+            "Focus your answers on this section when relevant.",
+        )
     if memory_context:
         prompt_parts.append(f"\n\nSaved user memories:\n{memory_context}")
 

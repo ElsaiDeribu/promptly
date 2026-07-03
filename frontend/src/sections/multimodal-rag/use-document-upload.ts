@@ -1,11 +1,13 @@
 import axios, { endpoints } from '@/utils/axios';
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useCallback } from 'react';
 
 import { resolveErrorMessage } from './utils';
+import { useDocuments } from '../documents/use-documents';
+import { useDocumentLayout } from './use-document-layout';
 
+import type { UseDocumentsReturn } from '../documents/use-documents';
 import type {
   TrackedDocument,
-  DocumentDetailResponse,
   CompleteUploadResponse,
   CreateUploadUrlResponse,
   EvalExamplesStatusResponse,
@@ -15,19 +17,12 @@ import type {
 // ----------------------------------------------------------------------
 
 const DEFAULT_CONTENT_TYPE = 'application/pdf';
-
-// Back off over time — no need to hammer every 30s for an hour
-const POLL_INTERVALS_MS = [30_000, 60_000, 120_000];
-const MAX_POLL_INTERVAL_MS = 120_000;
-const MAX_POLL_DURATION_MS = 60 * 60 * 1000; // ~1 hour before we give up polling
 const EVAL_POLL_INTERVAL_MS = 3000;
 const EVAL_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 
-function getPollIntervalMs(scheduleIndex: number): number {
-  return scheduleIndex < POLL_INTERVALS_MS.length
-    ? POLL_INTERVALS_MS[scheduleIndex]
-    : MAX_POLL_INTERVAL_MS;
-}
+type UseDocumentUploadOptions = {
+  library?: UseDocumentsReturn;
+};
 
 type UseDocumentUploadReturn = {
   uploading: boolean;
@@ -35,93 +30,33 @@ type UseDocumentUploadReturn = {
   successMessage: string;
   documents: TrackedDocument[];
   selectedFile: File | null;
-  fileInputRef: React.RefObject<HTMLInputElement>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
   openFilePicker: () => void;
   selectFile: (file: File | null) => void;
   uploadSelectedFile: () => Promise<void>;
   generateEvalExamples: (documentId: string) => Promise<void>;
+  updateDocumentLayoutStatus: (documentId: string, status: TrackedDocument['layoutGenerationStatus']) => void;
   resetFeedback: () => void;
+  onViewLayout: (documentId: string, filename: string) => Promise<void>;
+  viewingLayoutDocumentId: string | null;
+  layoutDialogOpen: boolean;
+  setLayoutDialogOpen: (open: boolean) => void;
+  layout: ReturnType<typeof useDocumentLayout>;
 };
 
-/**
- * Handles the three-step direct-to-S3 upload flow:
- *   1. Request a pre-signed upload URL from the backend.
- *   2. PUT the file straight to storage (no Django round-trip, no auth header).
- *   3. Notify the backend so async processing can start.
- */
-export function useDocumentUpload(): UseDocumentUploadReturn {
+export function useDocumentUpload(options: UseDocumentUploadOptions = {}): UseDocumentUploadReturn {
+  const ownedLibrary = useDocuments({ autoFetch: !options.library });
+  const library = options.library ?? ownedLibrary;
+
+  const layout = useDocumentLayout();
+  const [layoutDialogOpen, setLayoutDialogOpen] = useState(false);
+
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [documents, setDocuments] = useState<TrackedDocument[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Outstanding poll timers keyed by document id, so we can cancel on unmount.
-  const pollTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
-  useEffect(
-    () => () => {
-      Object.values(pollTimers.current).forEach(clearTimeout);
-      pollTimers.current = {};
-    },
-    []
-  );
-
-  const updateDocument = useCallback((id: string, patch: Partial<TrackedDocument>) => {
-    setDocuments((prev) => prev.map((doc) => (doc.id === id ? { ...doc, ...patch } : doc)));
-  }, []);
-
-  /**
-   * Polls the document detail endpoint until the backend reports a terminal
-   * status (`processed` or `failed`), or MAX_POLL_DURATION_MS elapses.
-   */
-  const startPolling = useCallback(
-    (documentId: string) => {
-      const startedAt = Date.now();
-      let scheduleIndex = 0;
-
-      const scheduleNext = () => {
-        if (Date.now() - startedAt >= MAX_POLL_DURATION_MS) {
-          delete pollTimers.current[documentId];
-          return;
-        }
-
-        const delay = getPollIntervalMs(scheduleIndex);
-        scheduleIndex += 1;
-        pollTimers.current[documentId] = setTimeout(tick, delay);
-      };
-
-      const tick = async () => {
-        try {
-          const { data } = await axios.get<DocumentDetailResponse>(
-            endpoints.llm.documentDetail(documentId)
-          );
-
-          updateDocument(documentId, {
-            status: data.status,
-            errorMessage: data.error_message || undefined,
-            evalGenerationStatus: data.eval_generation_status,
-            evalExampleCount: data.eval_example_count,
-          });
-
-          if (data.status === 'processed' || data.status === 'failed') {
-            delete pollTimers.current[documentId];
-            return;
-          }
-        } catch {
-          // Transient error (network blip, etc.) - keep polling until we run
-          // out of time rather than failing the whole upload.
-        }
-
-        scheduleNext();
-      };
-
-      scheduleNext();
-    },
-    [updateDocument]
-  );
 
   const pollEvalGeneration = useCallback(
     (documentId: string) =>
@@ -130,7 +65,7 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
 
         const tick = async () => {
           if (Date.now() - startedAt >= EVAL_POLL_TIMEOUT_MS) {
-            updateDocument(documentId, { generatingEval: false });
+            library.updateDocument(documentId, { generatingEval: false });
             reject(new Error('Timed out waiting for eval example generation'));
             return;
           }
@@ -140,25 +75,25 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
               endpoints.llm.evalExamples(documentId)
             );
 
-            updateDocument(documentId, {
+            library.updateDocument(documentId, {
               evalGenerationStatus: data.eval_generation_status,
               evalExampleCount: data.eval_example_count,
             });
 
             if (data.eval_generation_status === 'completed') {
-              updateDocument(documentId, { generatingEval: false });
+              library.updateDocument(documentId, { generatingEval: false });
               resolve();
               return;
             }
 
             if (data.eval_generation_status === 'failed') {
-              updateDocument(documentId, { generatingEval: false });
+              library.updateDocument(documentId, { generatingEval: false });
               reject(new Error('Failed to generate eval examples'));
               return;
             }
-          } catch (error) {
-            updateDocument(documentId, { generatingEval: false });
-            reject(error);
+          } catch (pollError) {
+            library.updateDocument(documentId, { generatingEval: false });
+            reject(pollError);
             return;
           }
 
@@ -167,14 +102,14 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
 
         tick();
       }),
-    [updateDocument]
+    [library]
   );
 
   const generateEvalExamples = useCallback(
     async (documentId: string) => {
       setError('');
       setSuccessMessage('');
-      updateDocument(documentId, {
+      library.updateDocument(documentId, {
         generatingEval: true,
         evalGenerationStatus: 'processing',
       });
@@ -189,7 +124,7 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
         setError(resolveErrorMessage(e, 'Failed to generate eval examples'));
       }
     },
-    [pollEvalGeneration, updateDocument]
+    [library, pollEvalGeneration]
   );
 
   const resetFeedback = useCallback(() => {
@@ -253,12 +188,13 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
       );
 
       setSuccessMessage(`Uploaded: ${file.name}. Track its status below.`);
-      setDocuments((prev) => [
-        ...prev,
-        { id: documentId, filename: file.name, status: completeData?.status || 'uploaded' },
-      ]);
+      library.addDocument({
+        id: documentId,
+        filename: file.name,
+        status: completeData?.status || 'uploaded',
+      });
 
-      startPolling(documentId);
+      library.startPolling(documentId);
       setSelectedFile(null);
 
       if (fileInputRef.current) {
@@ -269,19 +205,46 @@ export function useDocumentUpload(): UseDocumentUploadReturn {
     } finally {
       setUploading(false);
     }
-  }, [selectedFile, startPolling]);
+  }, [library, selectedFile]);
+
+  const updateDocumentLayoutStatus = useCallback(
+    (documentId: string, layoutGenerationStatus: TrackedDocument['layoutGenerationStatus']) => {
+      library.updateDocument(documentId, { layoutGenerationStatus });
+    },
+    [library]
+  );
+
+  const onViewLayout = useCallback(
+    async (documentId: string, filename: string) => {
+      setError('');
+      setLayoutDialogOpen(true);
+      const result = await layout.openLayout(documentId, filename);
+      if (result === 'completed') {
+        updateDocumentLayoutStatus(documentId, 'completed');
+      } else if (result === 'failed') {
+        updateDocumentLayoutStatus(documentId, 'failed');
+      }
+    },
+    [layout, updateDocumentLayoutStatus]
+  );
 
   return {
     uploading,
     error,
     successMessage,
-    documents,
+    documents: library.documents,
     selectedFile,
     fileInputRef,
     openFilePicker,
     selectFile,
     uploadSelectedFile,
     generateEvalExamples,
+    updateDocumentLayoutStatus,
     resetFeedback,
+    onViewLayout,
+    viewingLayoutDocumentId: layout.loading ? layout.activeDocumentId : null,
+    layoutDialogOpen,
+    setLayoutDialogOpen,
+    layout,
   };
 }

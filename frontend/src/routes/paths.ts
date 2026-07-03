@@ -16,6 +16,9 @@ export const paths = {
     root: ROOTS.DASHBOARD,
     llmChat: `${ROOTS.DASHBOARD}/llm-chat`,
     multimodalRag: `${ROOTS.DASHBOARD}/multimodal-rag`,
+    documents: `${ROOTS.DASHBOARD}/documents`,
+    studyCompanion: (documentId: string) =>
+      `${ROOTS.DASHBOARD}?tab=documents&documentId=${encodeURIComponent(documentId)}`,
   },
 
   // AUTH

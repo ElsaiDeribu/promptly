@@ -9,6 +9,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance
 from qdrant_client.http.models import FieldCondition
 from qdrant_client.http.models import Filter
+from qdrant_client.http.models import FilterSelector
 from qdrant_client.http.models import MatchValue
 from qdrant_client.http.models import SparseIndexParams
 from qdrant_client.http.models import SparseVectorParams
@@ -196,3 +197,10 @@ class VectorDBWrapper:
                 break
 
         return documents
+
+    def delete_by_document_id(self, document_id: int) -> None:
+        """Remove all vector chunks indexed for a document."""
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=FilterSelector(filter=self._document_filter(document_id)),
+        )
